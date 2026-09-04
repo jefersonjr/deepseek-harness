@@ -51,10 +51,27 @@ export interface Config {
   maxSpillBytes?: number
   /** Grace period for kill escalation and inherited pipes; at most `MAX_TIMER_DELAY_MS`. */
   graceMs?: number
+  /**
+   * Explicit bash executable, trusted as-is; absent spawns `bash` through PATH.
+   * The mirror of `pwsh-local`'s `pwshPath`. It matters most on Windows, where
+   * the System32 `bash.exe` is the WSL launcher and shadows a real bash earlier
+   * on PATH: without WSL provisioned it fails the spawn with
+   * `Bash/Service/CreateInstance/E_ACCESSDENIED`. Point this at Git for Windows
+   * to reach that one.
+   */
+  bashPath?: string
+  /**
+   * Arguments placed between the executable and the command string; absent
+   * means `['-c']`, the POSIX shell convention. The escape hatch for a host
+   * whose only usable interpreter is not a POSIX shell: `cmd.exe` takes
+   * `['/d', '/s', '/c']`. The command still travels as ONE argv element, so
+   * the interpreter does its own parsing and no quoting layer is added here.
+   */
+  shellArgs?: string[]
 }
 
 /** The shape after schemastery applied the defaults (cwd has none). */
-type ResolvedConfig = Required<Omit<Config, 'cwd'>> & Pick<Config, 'cwd'>
+type ResolvedConfig = Required<Omit<Config, 'cwd' | 'bashPath' | 'shellArgs'>> & Pick<Config, 'cwd' | 'bashPath' | 'shellArgs'>
 
 /** Project a settled collect-mode reader into the final CollectedOutput shape. */
 function finalOutput(reader: SubprocessOutputReader): CollectedOutput {
@@ -109,6 +126,8 @@ export class LocalBashExecutor extends ShellExecutor {
     maxOutputBytes: z.number().default(64_000),
     maxSpillBytes: z.number().default(DEFAULT_MAX_SPILL_BYTES),
     graceMs: z.number().default(DEFAULT_GRACE_MS),
+    bashPath: z.string(),
+    shellArgs: z.array(z.string()),
   })
 
   /** The currently authoritative config: the settings section, or the composition entry. */
@@ -117,6 +136,27 @@ export class LocalBashExecutor extends ShellExecutor {
   /** Validated config (schemastery applied the defaults before construction). */
   get config(): ResolvedConfig {
     return this.source()
+  }
+
+  /**
+   * The bash executable this executor spawns. Read at each command, like every
+   * other field, so a settings edit takes effect without rebuilding anything.
+   */
+  get bashPath(): string {
+    const declared = this.source().bashPath
+    return declared !== undefined && declared.length > 0 ? declared : 'bash'
+  }
+
+  /**
+   * The argv prefix for one command: the executable plus its "run this string"
+   * arguments. Read at each command like every other field.
+   * @param command - the shell source to run.
+   * @returns the exact argv to spawn.
+   */
+  protected shellArgv(command: string): string[] {
+    const declared = this.source().shellArgs
+    const args = declared !== undefined && declared.length > 0 ? [...declared] : ['-c']
+    return [this.bashPath, ...args, command]
   }
 
   constructor(ctx: Context, config: Config) {
@@ -211,7 +251,7 @@ export class LocalBashExecutor extends ShellExecutor {
   }
 
   async run(spec: ShellExecSpec): Promise<ShellRunResult> {
-    return this.runArgv(spec, ['bash', '-c', spec.command])
+    return this.runArgv(spec, this.shellArgv(spec.command))
   }
 
   /**
@@ -242,7 +282,7 @@ export class LocalBashExecutor extends ShellExecutor {
   }
 
   start(spec: ShellExecSpec): ShellProcess {
-    return this.startArgv(spec, ['bash', '-c', spec.command])
+    return this.startArgv(spec, this.shellArgv(spec.command))
   }
 
   /**
