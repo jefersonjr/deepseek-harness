@@ -177,13 +177,27 @@
 
     - id: bash-sandbox
       name: '@deepseek-ai/dsh-bash-sandbox'
-      disabled: !!js process.platform === 'win32'
+      # Which shell stack mounts. The platform default is unchanged; DSH_SHELL
+      # (bash | pwsh | cmd) overrides it, for a Windows host whose PowerShell is
+      # blocked by policy, where spawning pwsh fails with `spawn UNKNOWN`.
+      disabled: !!js "!['bash', 'cmd'].includes(process.env.DSH_SHELL ?? (process.platform === 'win32' ? 'pwsh' : 'bash'))"
       config:
         timeoutMs: 60000
+        # DSH_SHELL=cmd points this executor at the Command Prompt: same
+        # executor, different interpreter. The command still travels as ONE
+        # argv element, so cmd does its own parsing and nothing quotes here.
+        bashPath: !!js "process.env.DSH_SHELL === 'cmd' ? (process.env.COMSPEC ?? 'cmd.exe') : process.env.DSH_BASH_PATH"
+        shellArgs: !!js "process.env.DSH_SHELL === 'cmd' ? ['/d', '/s', '/c'] : undefined"
+        # DSH_BASH_PATH covers the other case: on Windows the System32
+        # bash.exe is the WSL launcher and shadows a real bash further along
+        # PATH; without WSL provisioned it fails the spawn with
+        # Bash/Service/CreateInstance/E_ACCESSDENIED. Point it at Git for
+        # Windows -- but note MSYS does not survive the windows-acl runner's
+        # restricted token (CreateFileMapping, Win32 error 5).
 
     - id: pwsh-sandbox
       name: '@deepseek-ai/dsh-pwsh-sandbox'
-      disabled: !!js process.platform !== 'win32'
+      disabled: !!js "(process.env.DSH_SHELL ?? (process.platform === 'win32' ? 'pwsh' : 'bash')) !== 'pwsh'"
 
     - id: approval
       name: '@deepseek-ai/dsh-user-approval'
@@ -209,11 +223,16 @@
 
     - id: tool-bash
       name: '@deepseek-ai/dsh-tool-bash'
-      disabled: !!js process.platform === 'win32'
+      disabled: !!js "!['bash', 'cmd'].includes(process.env.DSH_SHELL ?? (process.platform === 'win32' ? 'pwsh' : 'bash'))"
+      config:
+        # The tool is still named `bash`, but the executor may be pointed at
+        # cmd.exe. The model writes to whatever the description says, so the
+        # description swaps too -- otherwise it emits POSIX at the Prompt.
+        description: !!js "process.env.DSH_SHELL === 'cmd' ? 'Execute a Windows cmd.exe command (cmd /d /s /c) and return its stdout/stderr. This host has no bash and no PowerShell: write Command Prompt syntax, not POSIX. Use dir not ls, type not cat, findstr not grep, copy not cp, %VAR% not $VAR, and backslash paths. && and || chain as usual; pipelines and > redirection work. There are no heredocs, no single-quote literals, and no $(...) substitution - use for /f to capture output.' : undefined"
 
     - id: tool-pwsh
       name: '@deepseek-ai/dsh-tool-pwsh'
-      disabled: !!js process.platform !== 'win32'
+      disabled: !!js "(process.env.DSH_SHELL ?? (process.platform === 'win32' ? 'pwsh' : 'bash')) !== 'pwsh'"
 
     - id: tool-jobs
       name: '@deepseek-ai/dsh-tool-jobs'

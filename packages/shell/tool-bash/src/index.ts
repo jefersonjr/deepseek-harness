@@ -34,11 +34,20 @@ export const inject = ['tools', 'shell', 'systemPrompt', 'shellEnv']
 export interface Config {
   /** Expose `run_in_background` (default true); disabled calls are also rejected. */
   enableRunInBackground?: boolean
+  /**
+   * Model-facing tool description, replacing the bash one; deployments may
+   * describe their environment. Set it whenever the executor is pointed at an
+   * interpreter that is not bash (`bash-local`'s `bashPath`/`shellArgs`),
+   * because the shipped text names bash and its syntax, and the model writes
+   * to whatever the description says.
+   */
+  description?: string
 }
 
 /** Runtime configuration schema for the bash tool plugin. */
 export const Config: z<Config> = z.object({
   enableRunInBackground: z.boolean().default(true),
+  description: z.string(),
 })
 
 /** Parsed tool args; execute validates value constraints absent from ParameterSchemaSpec. */
@@ -241,7 +250,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   ctx.tools.register(defineTool({
     name: 'bash',
-    description: bashDescription(backgroundEnabled, escalationModes),
+    description: config.description ?? bashDescription(backgroundEnabled, escalationModes),
     parameters: {
       command: { type: 'string', required: true, description: 'The bash command to execute.' },
       description: {
