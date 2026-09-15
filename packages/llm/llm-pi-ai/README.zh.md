@@ -109,6 +109,8 @@ llm-pi-ai:
 
 Failsafe 缩写较早的对话数据和已完成工具交换，保留最新用户输入及最新工具调用／结果对，并缩短过大的工具观察。系统指令和工具定义保持完整。如果这些必需部分仍超预算，它会在网络 I/O 前返回 `BEDROCK_REQUEST_TOO_LARGE`。默认限制下的 Web 会话请使用精简 `bedrock` agent preset；standard 工具目录本身可能超过 5,000 字符。已有会话保持原 preset。[Normal](examples/bedrock-normal.settings.yaml) 和 [Failsafe](examples/bedrock-failsafe.settings.yaml) 示例放入用户设置文档；请为账户选择已启用的 Bedrock 模型。
 
+大小错误报告 `system`、`tools`、`messages` 和 `other` 的字符总数，不暴露其内容。这些值之和等于被拒绝请求的大小；`other` 包含其余字段和 JSON 语法。如果新会话中的短消息失败，请检查实际启用的 agent preset 及注入的指令／工具定义。选择 Bedrock 提供方不会选择精简 agent preset。如果 `bedrock` 已启用，请比较正在运行的 checkout／构建和 preset 配置；重试未改变的超大请求无济于事。请求上限应保持在代理支持的预算内。
+
 遇到 502 时，请求和输出预算均乘以 `recoveryFactor`（默认 `0.75`），最多重试 `maxRetries`（默认 `3`）次，从 `retryDelayMs`（默认 `500`）开始可取消的指数退避。若必需输入无法放入缩减目标，重试会在配置的硬上限内保留它，并继续减少输出 tokens。每次尝试只使用一次 SDK 请求。其他错误不进入此纠正重试。`maxOutputTokens` 默认为 `1024`；收到 `max_tokens` 后携带最多 `continuationCharacters`（`768`）个尾部字符继续，最多额外响应 `maxContinuations`（`8`）次。不完整工具参数会被丢弃并重新生成为更小的完整操作。部分文本会缓冲到完整回复成功，usage 包含所有尝试。
 
 属于活动会话的每个 Failsafe 请求及已结束响应都记录为 `llm/bedrock-exchange`，请求记录在传输前 flush。记录包含有效载荷和限制，不含认证标头。Failsafe 禁用 prompt cache 和 reasoning 扩展。缩写历史并非语义摘要，续写措辞仍依赖模型。profile 签名、502 恢复和续写由本地 AWS 协议 fixture 验证；真实账户访问、SSO 续期及企业代理需要部署 smoke 测试。

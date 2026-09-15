@@ -59,9 +59,26 @@ function clonePayload(value: unknown): ConverseStreamCommandInput {
   return structuredClone(value) as ConverseStreamCommandInput
 }
 
-/** Conservative wire representation: includes modelId, which the SDK moves to the URL. */
-function serialize(payload: ConverseStreamCommandInput): string {
+/** Wire JSON for payloads and diagnostic counts; the full SDK input also includes the URL-bound modelId. */
+function serialize(payload: unknown): string {
   return JSON.stringify(payload, (_key, value: unknown) => value instanceof Uint8Array ? Buffer.from(value).toString('base64') : value)
+}
+
+/** Character totals only: diagnostics must not expose prompt text, tool definitions or message content. */
+function requestTooLarge(payload: ConverseStreamCommandInput, total: number, limit: number): LlmError {
+  const countField = (key: 'system' | 'toolConfig' | 'messages'): number =>
+    payload[key] === undefined ? 0 : characterCount(serialize(payload[key]))
+  const system = countField('system')
+  const tools = countField('toolConfig')
+  const messages = countField('messages')
+  const other = total - system - tools - messages
+  return new LlmError(
+    `Bedrock failsafe request needs ${total} characters after compaction; maxRequestCharacters is ${limit}.`
+    + ` JSON characters: system=${system}, tools=${tools}, messages=${messages}, other=${other}.`
+    + ' This request was blocked before sending. Check the active agent preset and reduce its instructions/tools or the latest input.'
+    + ' Selecting the Bedrock provider alone does not select the compact bedrock agent preset.',
+    'BEDROCK_REQUEST_TOO_LARGE',
+  )
 }
 
 function isUserInput(message: BedrockMessage): boolean {
@@ -70,7 +87,8 @@ function isUserInput(message: BedrockMessage): boolean {
 
 /**
  * Bound an SDK request while preserving system instructions, tool schemas and the latest user input.
- * Older history and tool observations may be explicitly abbreviated. An irreducible request fails before network I/O.
+ * Older history and tool observations may be explicitly abbreviated. An irreducible request fails before network I/O
+ * with character totals for system, tools, messages and the remaining JSON, without exposing their content.
  * @param value - SDK command input, before serialization.
  * @param limit - character budget for the whole serialized request.
  * @param policy - limits for retained observations and continuation context.
@@ -117,13 +135,8 @@ export function fitBedrockRequest(
     if (!changed) break
     observationLimit = Math.floor(observationLimit / 2)
   }
-  if (size() > limit) {
-    throw new LlmError(
-      `Bedrock failsafe request needs ${size()} characters after compaction; maxRequestCharacters is ${limit}.`
-      + ' Reduce system/tool definitions or the latest input, or configure a larger limit supported by the proxy.',
-      'BEDROCK_REQUEST_TOO_LARGE',
-    )
-  }
+  const total = size()
+  if (total > limit) throw requestTooLarge(payload, total, limit)
   return payload
 }
 

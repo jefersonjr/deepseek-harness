@@ -49,7 +49,16 @@ describe('Bedrock request character limits', () => {
     const payload = { modelId: 'test', messages: [{ role: 'user', content: [{ text: 'ação😀' }] }] }
     const exact = characterCount(JSON.stringify(payload))
     expect(fitBedrockRequest(payload, exact, policy)).toEqual(payload)
-    expect(() => fitBedrockRequest(payload, exact - 1, policy)).toThrow(/maxRequestCharacters/)
+    expect(() => fitBedrockRequest(payload, exact - 1, policy)).toThrowErrorMatchingInlineSnapshot('[LlmError: Bedrock failsafe request needs 76 characters after compaction; maxRequestCharacters is 75. JSON characters: system=0, tools=0, messages=46, other=30. This request was blocked before sending. Check the active agent preset and reduce its instructions/tools or the latest input. Selecting the Bedrock provider alone does not select the compact bedrock agent preset.]')
+  })
+
+  it('reports mandatory JSON component sizes without copying their content into the error', () => {
+    const payload = {
+      modelId: 'test', system: [{ text: 'private-instruction '.repeat(300) }],
+      toolConfig: { tools: [{ toolSpec: { name: 'private-tool', inputSchema: { json: { type: 'object' } } } }] },
+      messages: [{ role: 'user', content: [{ text: 'private-input😀' }] }],
+    }
+    expect(() => fitBedrockRequest(payload, 5000, policy)).toThrowErrorMatchingInlineSnapshot('[LlmError: Bedrock failsafe request needs 6211 characters after compaction; maxRequestCharacters is 5000. JSON characters: system=6013, tools=89, messages=55, other=54. This request was blocked before sending. Check the active agent preset and reduce its instructions/tools or the latest input. Selecting the Bedrock provider alone does not select the compact bedrock agent preset.]')
   })
 
   it('bounds oversized tool output and retains the tool use/result pair and original input', () => {

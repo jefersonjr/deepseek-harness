@@ -207,6 +207,28 @@ describe('Bedrock through the AWS SDK', () => {
     expect(exchanges).toEqual([])
   })
 
+  it('diagnoses a short input blocked by mandatory instructions before any HTTP request', async () => {
+    const server = await endpoint([])
+    const { ctx, session, exchanges } = await composition(server.url, { mode: 'failsafe' })
+    const result = await assemble(ctx, {
+      provider: 'amazon-bedrock', model: 'anthropic.claude-sonnet-4-5-20250929-v1:0', sessionId: session.id,
+      system: 'private-instruction '.repeat(300),
+      messages: [createUserMessage({ content: [{ type: 'text', text: 'oi' }], source: { kind: 'user' } })],
+    })
+    expect(result.finish).toMatchInlineSnapshot(`
+      {
+        "failure": {
+          "code": "BEDROCK_REQUEST_TOO_LARGE",
+          "message": "Bedrock failsafe request needs 6300 characters after compaction; maxRequestCharacters is 5000. JSON characters: system=6143, tools=0, messages=43, other=114. This request was blocked before sending. Check the active agent preset and reduce its instructions/tools or the latest input. Selecting the Bedrock provider alone does not select the compact bedrock agent preset.",
+        },
+        "kind": "error",
+      }
+    `)
+    expect(result.message.content).toEqual([])
+    expect(server.requests).toEqual([])
+    expect(exchanges).toEqual([])
+  })
+
   it('fits the shipped compact preset and its actual tool schema into 5000 characters', async () => {
     const server = await endpoint([{ text: 'compact preset ready' }])
     const { ctx } = await composition(server.url, { mode: 'failsafe' }, true)

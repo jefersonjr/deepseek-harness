@@ -12,6 +12,8 @@ Status: implemented
 
 pi-ai 适配器负责 Bedrock 策略。Normal 保留普通传输行为。Failsafe 默认每次序列化 SDK 输入最多 5,000 个 Unicode 码点，通过 `bedrock.maxRequestCharacters` 配置。SDK 输入计数包含 JSON 语法、base64 数据和移入 URL 的模型 id。适配器保留系统指令、工具定义和最新用户输入，缩写较早数据，并在传输前拒绝无法进一步缩减的输入。精简 `bedrock` preset 提供小型 prompt 和 shell 目录，不自动更改会话模型。
 
+请求过大错误只报告系统指令、工具、消息及其余 JSON 的字符总数。即使用户仅发送简短问候，这些计数也能指出过大的必需上下文，且不会将私有内容复制到错误中。诊断区分提供方选择与 agent preset 选择，并引导用户检查实际启用的配置，而非提高上限或重试同一载荷。
+
 profile 依次选择路由配置、已存 AWS profile、`AWS_PROFILE`、`default`；凭据与刷新仍由 AWS SDK 负责。固定的 pi-ai 补丁为所选 profile 强制 SigV4，仅为 Failsafe 尝试禁用原生重试。显式 API-key 引用仍可选择 bearer 认证。502 会缩减输入／输出预算并触发有界、可取消重试。达到 token 上限后使用精简续写；不完整工具调用会重新生成，绝不执行。包装器缓冲到完整回复成功，统计所有尝试 usage，并在提供方事件到达时重置流空闲计时器。
 
 `llm/bedrock-exchange` 会话事件记录每个有效请求及已结束响应。存在活动会话时，请求在网络 I/O 前 flush，不含认证标头。该事件保留无法仅从普通 assistant 消息重建的实际缩写上下文及合成续写。
