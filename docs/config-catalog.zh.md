@@ -1221,18 +1221,32 @@ export interface BedrockConfig {
   profile?: string
   /** AWS region; omitted uses the environment and the selected profile. */
   region?: string
-  /** Maximum Unicode characters in each complete serialized JSON request in failsafe mode. */
-  maxRequestCharacters?: number
+  /** Maximum UTF-8 bytes in each complete serialized request in failsafe mode. */
+  maxRequestBytes?: number
   /** Maximum output tokens per failsafe request, including continuations. */
   maxOutputTokens?: number
+  /** Minimum adaptive output budget; a smaller caller maxTokens remains authoritative. */
+  minOutputTokens?: number
+  /** Absolute duration of one attempt, including response streaming, in milliseconds. */
+  requestDeadlineMs?: number
+  /** Total duration of a generation, including retries, continuations and backoff, in milliseconds. */
+  totalDeadlineMs?: number
+  /** Total network attempts across retries and continuations for one generation. */
+  maxTotalAttempts?: number
+  /** Lifetime of recovered budgets in this adapter process, per configured route and model. */
+  adaptiveTtlMs?: number
   /** Maximum additional requests after a token-limited response. */
   maxContinuations?: number
-  /** Maximum corrective retries after HTTP 502 for one request. */
+  /** Maximum corrective retries after a gateway failure, deadline or identified proxy size rejection. */
   maxRetries?: number
   /** Initial cancellable retry delay in milliseconds; subsequent waits use exponential backoff. */
   retryDelayMs?: number
-  /** Fraction of the previous request and output budgets retained after HTTP 502. */
+  /** Fraction of the failed request size retained after a proxy size rejection or input recovery. */
   recoveryFactor?: number
+  /** Fraction of the output budget retained after a gateway failure or deadline. */
+  outputReductionFactor?: number
+  /** Case-insensitive pattern for proxy size errors with HTTP 403; AWS authorization errors never qualify. */
+  proxySizeErrorPattern?: string
   /** Maximum characters of the preceding response carried into a continuation. */
   continuationCharacters?: number
   /** Maximum characters retained from each tool result when the request needs compaction. */

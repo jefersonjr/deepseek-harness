@@ -1604,9 +1604,11 @@
         "phase": "request",
         "attempt": 2,
         "continuation": 1,
-        "request": "{\"modelId\":\"bedrock-snapshot-model\",\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Continue after: part one\"}]}],\"inferenceConfig\":{\"maxTokens\":768}}",
+        "request": "{\"modelId\":\"bedrock-snapshot-model\",\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Continue after: part one\"}]}],\"inferenceConfig\":{\"maxTokens\":256}}",
         "characters": 149,
-        "limit": 3750
+        "bytes": 149,
+        "limitBytes": 80000,
+        "maxTokens": 256
       }
     },
     {
@@ -1617,10 +1619,14 @@
         "phase": "response",
         "attempt": 2,
         "continuation": 1,
-        "request": "{\"modelId\":\"bedrock-snapshot-model\",\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Continue after: part one\"}]}],\"inferenceConfig\":{\"maxTokens\":768}}",
+        "request": "{\"modelId\":\"bedrock-snapshot-model\",\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Continue after: part one\"}]}],\"inferenceConfig\":{\"maxTokens\":256}}",
         "characters": 149,
-        "limit": 3750,
+        "bytes": 149,
+        "limitBytes": 80000,
+        "maxTokens": 256,
         "status": 200,
+        "durationMs": 43000,
+        "firstTokenMs": 1800,
         "response": {
           "role": "assistant",
           "api": "bedrock-converse-stream",
@@ -4596,9 +4602,11 @@
             "phase": "request",
             "attempt": 2,
             "continuation": 1,
-            "request": "{\"modelId\":\"bedrock-snapshot-model\",\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Continue after: part one\"}]}],\"inferenceConfig\":{\"maxTokens\":768}}",
+            "request": "{\"modelId\":\"bedrock-snapshot-model\",\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Continue after: part one\"}]}],\"inferenceConfig\":{\"maxTokens\":256}}",
             "characters": 149,
-            "limit": 3750
+            "bytes": 149,
+            "limitBytes": 80000,
+            "maxTokens": 256
           }
         }
       }
@@ -4615,10 +4623,14 @@
             "phase": "response",
             "attempt": 2,
             "continuation": 1,
-            "request": "{\"modelId\":\"bedrock-snapshot-model\",\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Continue after: part one\"}]}],\"inferenceConfig\":{\"maxTokens\":768}}",
+            "request": "{\"modelId\":\"bedrock-snapshot-model\",\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Continue after: part one\"}]}],\"inferenceConfig\":{\"maxTokens\":256}}",
             "characters": 149,
-            "limit": 3750,
+            "bytes": 149,
+            "limitBytes": 80000,
+            "maxTokens": 256,
             "status": 200,
+            "durationMs": 43000,
+            "firstTokenMs": 1800,
             "response": {
               "role": "assistant",
               "api": "bedrock-converse-stream",

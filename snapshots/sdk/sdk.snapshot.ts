@@ -639,6 +639,8 @@ async function runScenario(scenario: CorpusScenario): Promise<{
         results.push(result)
         if (scenario.manifest.environment?.DSH_SNAPSHOT_FEEDBACK === '1') {
           expect(result.events.filter(event => event.type === 'llm/bedrock-exchange').map(event => event.data.phase)).toEqual(['request', 'response'])
+          expect(result.events.find(event => event.type === 'llm/bedrock-exchange' && event.data.phase === 'response')?.data)
+            .toMatchObject({ limitBytes: 80000, maxTokens: 256, durationMs: 43000, firstTokenMs: 1800 })
           const feedback = result.events.filter(event => event.type.startsWith('feedback/'))
           expect(feedback.map(event => event.type)).toEqual([
             'feedback/record', 'feedback/record', 'feedback/message-put', 'feedback/message-put', 'feedback/message-delete',

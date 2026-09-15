@@ -62,6 +62,7 @@ import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
 import { toStreamChunks } from './stream.ts'
 import { bedrockFailsafe } from './bedrock-failsafe.ts'
+import { BedrockAdaptiveBudgets } from './bedrock-adaptive.ts'
 import type { BedrockExchange } from './bedrock-failsafe.ts'
 
 /** One resolution's frozen view: the profiles and the collection built from them. */
@@ -222,6 +223,7 @@ function requestHeaders(headers: Readonly<Record<string, string>> | undefined): 
  */
 export class PiAiAdapter extends LlmAdapter {
   private snapshot: PiAiSnapshot | undefined
+  private readonly bedrockBudgets = new BedrockAdaptiveBudgets()
 
   constructor(private readonly config: PiAiAdapterOptions) {
     super()
@@ -274,7 +276,10 @@ export class PiAiAdapter extends LlmAdapter {
   }
 
   override providerRetryPolicy(provider: string): ResolvedRetryPolicy | undefined {
-    return this.current().profiles.get(provider)?.retryPolicy
+    const profile = this.current().profiles.get(provider)
+    return profile?.bedrock?.mode === 'failsafe'
+      ? { ...profile.retryPolicy, mode: 'normal', maxRetries: 0, retryableCodes: [] }
+      : profile?.retryPolicy
   }
 
   override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
@@ -400,6 +405,10 @@ export class PiAiAdapter extends LlmAdapter {
           failsafe,
           exchange => this.config.onBedrockExchange?.(options.sessionId, exchange),
           () => { watchdog.pulse() },
+          {
+            initial: this.bedrockBudgets.read(failsafe, model.id),
+            remember: (budget) => { this.bedrockBudgets.remember(failsafe, model.id, budget) },
+          },
         )
         : snapshot.models.streamSimple(model, context, streamOptions)
       const iterator = toStreamChunks(events, failsafe ? undefined : model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]()

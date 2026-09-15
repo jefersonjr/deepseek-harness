@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-14-bedrock-failsafe-cmd.md
-2026-09-14-bedrock-failsafe-cmd.md: 90cd98a78ff7853e533842edffdc54238d62aa74
-2026-09-14-bedrock-failsafe-cmd.zh.md: a4653070a5aeb6cf7b7b81d4be92cae68bceae43
+2026-09-14-bedrock-failsafe-cmd.md: b36fa8bf51e9af10d7a1cfcdd13899f5850eebff
+2026-09-14-bedrock-failsafe-cmd.zh.md: d33c62500e7198add383e7ae16d50ebd872bbb25

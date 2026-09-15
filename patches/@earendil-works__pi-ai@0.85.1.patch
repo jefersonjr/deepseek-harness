@@ -1,7 +1,8 @@
 diff --git a/dist/api/bedrock-converse-stream.js b/dist/api/bedrock-converse-stream.js
+index 6bc6312906ec3d75f31d190994d21c87f1d0767d..e51263199f9fca4fe120180ff5b2158cca8f02e2 100644
 --- a/dist/api/bedrock-converse-stream.js
 +++ b/dist/api/bedrock-converse-stream.js
-@@ -46,6 +46,8 @@
+@@ -46,6 +46,8 @@ export const stream = (model, context, options = {}) => {
          const optionsProfile = options.profile || options.env?.AWS_PROFILE;
          const config = {
              profile: optionsProfile || getProviderEnvValue("AWS_PROFILE", options.env),
@@ -10,7 +11,8 @@ diff --git a/dist/api/bedrock-converse-stream.js b/dist/api/bedrock-converse-str
          };
          const configuredRegion = getConfiguredBedrockRegion(options);
          const hasAmbientConfiguredProfile = Boolean(getProviderEnvValue("AWS_PROFILE"));
-@@ -59,9 +61,9 @@
+@@ -58,10 +60,10 @@ export const stream = (model, context, options = {}) => {
+             config.endpoint = model.baseUrl;
          }
          // Resolve bearer token for Bedrock API key auth.
 -        const skipAuth = getProviderEnvValue("AWS_BEDROCK_SKIP_AUTH", options.env) === "1";
@@ -22,3 +24,56 @@ diff --git a/dist/api/bedrock-converse-stream.js b/dist/api/bedrock-converse-str
              undefined;
          const useBearerToken = bearerToken !== undefined && !skipAuth;
          // in Node.js/Bun environment only
+@@ -121,9 +123,30 @@ export const stream = (model, context, options = {}) => {
+         // Kept outside the try so the catch can still correlate a mid-stream failure:
+         // exceptions delivered as stream events carry no HTTP metadata of their own.
+         let responseRequestId;
++        const requestByteLimit = Number(options.env?.DSH_BEDROCK_MAX_REQUEST_BYTES ?? 0);
++        let client;
++        const abortTransport = () => client?.destroy();
+         try {
+             const supportsStrictMode = model.compat?.supportsStrictMode ?? false;
+-            const client = new BedrockRuntimeClient(config);
++            client = new BedrockRuntimeClient(config);
++            if (requestByteLimit > 0) {
++                options.signal?.throwIfAborted();
++                options.signal?.addEventListener("abort", abortTransport, { once: true });
++                // The caller bounded the SDK input. Verify the final serialized
++                // body too, before signing or opening a network request.
++                client.middlewareStack.add((next) => async (args) => {
++                    options.signal?.throwIfAborted();
++                    const body = args.request.body;
++                    const bytes = typeof body === "string" ? Buffer.byteLength(body, "utf8")
++                        : body instanceof Uint8Array ? body.byteLength : undefined;
++                    if (bytes === undefined || bytes > requestByteLimit) {
++                        const error = new Error(`BEDROCK_REQUEST_TOO_LARGE: serialized HTTP body needs ${bytes ?? "unknown"} UTF-8 bytes; limit is ${requestByteLimit}`);
++                        error.name = "BedrockRequestTooLarge";
++                        throw error;
++                    }
++                    return next(args);
++                }, { step: "build", name: "dshBedrockBodyLimit", priority: "low" });
++            }
+             let observedRawResponse = false;
+             if (options.onResponse) {
+                 addResponseHeadersMiddleware(client, options.onResponse, model, () => {
+@@ -152,6 +175,7 @@ export const stream = (model, context, options = {}) => {
+             if (nextCommandInput !== undefined) {
+                 commandInput = nextCommandInput;
+             }
++            if (requestByteLimit > 0) options.signal?.throwIfAborted();
+             const command = new ConverseStreamCommand(commandInput);
+             const response = await client.send(command, { abortSignal: options.signal });
+             responseRequestId = normalizeDiagnosticValue(response.$metadata.requestId);
+@@ -232,6 +256,12 @@ export const stream = (model, context, options = {}) => {
+             stream.push({ type: "error", reason: output.stopReason, error: output });
+             stream.end();
+         }
++        finally {
++            if (requestByteLimit > 0) {
++                options.signal?.removeEventListener("abort", abortTransport);
++                client?.destroy();
++            }
++        }
+     })();
+     return stream;
+ };

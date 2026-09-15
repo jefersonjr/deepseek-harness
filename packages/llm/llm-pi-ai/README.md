@@ -84,7 +84,7 @@ Each profile may set a `retryPolicy`; omission uses normal mode with five retrie
 | `requestImagePixelBudget` | `4,194,304` | Total-pixel budget for each deterministic request image |
 | `requestImageMaxBytes` | `1 MiB` | Encoded-byte target for each request image before base64 expansion |
 | `maxRequestImageBytes` | `20 MiB` | Aggregate base64 image-payload bound with oldest-first offload |
-| `bedrock` | Normal, 5,000 characters for Failsafe | AWS profile, region, request budget and bounded recovery; see below |
+| `bedrock` | Normal; 80,000 bytes in Failsafe | AWS profile, region, request budget and bounded recovery; see below |
 | `retryPolicy` | normal, 5 retries | Provider-owned retry policy executed by `dsh-llm-retry` |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-llm-pi-ai) is the exhaustive source for every accepted field and its JSDoc.
@@ -102,18 +102,25 @@ llm-pi-ai:
     amazon-bedrock:
       bedrock:
         mode: failsafe
-        maxRequestCharacters: 5000
+        maxRequestBytes: 80000
+        requestDeadlineMs: 75000
+        maxOutputTokens: 512
+        minOutputTokens: 128
 ```
 
-`maxRequestCharacters` counts Unicode code points in the complete serialized SDK input, including JSON syntax, escaped characters, system instructions and tool schemas. Binary fields count their base64 representation. Counting also includes `modelId`, which the SDK moves into the URL, so the limit is conservative. The default is 5,000 characters per request, not bytes or tokens. The setting is ignored in Normal mode.
+`maxRequestBytes` bounds UTF-8 bytes of the complete serialized SDK input, including JSON syntax, escapes, system instructions, tool schemas and base64 binary data. The count includes URL-bound `modelId`, making it conservative; the transport also checks the final HTTP body before sending. The default is 80,000 bytes (decimal), leaving headroom below the deployment's observed 100 KB rejection. It is ignored in Normal mode. Remove `maxRequestCharacters` from existing settings and set `maxRequestBytes` explicitly; the removed field produces an actionable configuration error.
 
-Failsafe abbreviates earlier conversation data and completed tool exchanges, retains the latest user input and latest tool-use/result pair, and shortens oversized tool observations. It preserves system instructions and tool definitions. If these mandatory parts still exceed the budget, it returns `BEDROCK_REQUEST_TOO_LARGE` before network I/O. Use the compact `bedrock` agent preset for Web sessions at the default limit; the standard tool catalog can exceed 5,000 characters by itself. Existing sessions keep their original preset. The [Normal](examples/bedrock-normal.settings.yaml) and [Failsafe](examples/bedrock-failsafe.settings.yaml) examples belong in the user settings document; select an enabled Bedrock model for your account.
+Failsafe abbreviates older conversation data and completed tool exchanges, retains the latest user input and active tool-use/result pair, and shortens oversized tool observations. System instructions, tool definitions and active tool arguments remain complete. Mandatory input that cannot fit returns `BEDROCK_REQUEST_TOO_LARGE` before network I/O, with byte totals for `system`, `tools`, `messages` and `other` and no private content in the error. Select the compact `bedrock` agent preset when the instruction/tool catalog is too large; selecting a provider does not select a preset, and existing sessions retain their preset. The [Normal](examples/bedrock-normal.settings.yaml) and [Failsafe](examples/bedrock-failsafe.settings.yaml) examples belong in user settings; select an enabled model for your account.
 
-The size error reports character totals for `system`, `tools`, `messages` and `other`, without exposing their contents. These values add up to the rejected request size; `other` includes the remaining fields and JSON syntax. If a short message in a new conversation fails, inspect the active agent preset and injected instructions/tool definitions. Selecting the Bedrock provider does not select the compact agent preset. If `bedrock` is already active, compare the running checkout/build and preset configuration; retrying an unchanged oversized request cannot help. Keep the request limit within the proxy's supported budget.
+Each attempt has an absolute `requestDeadlineMs` of 75,000 ms, including streaming. A 502 or that deadline reduces the output ceiling by `outputReductionFactor` (`0.5`): 512, 256, then `minOutputTokens` (`128`). A smaller caller token cap remains authoritative. At the floor, recovery reduces the input target by `recoveryFactor` (`0.75`). A 403 reduces input only when its message matches `proxySizeErrorPattern`; the default recognizes request/payload/body size errors. AWS authorization errors and ambiguous 403 responses stop immediately. Configure a specific pattern for the proxy's actual size message. Reduced input targets use the failed serialized size and never silently discard mandatory content or resend above that target.
 
-A 502 reduces both request and output budgets by `recoveryFactor` (default `0.75`) and retries up to `maxRetries` (default `3`), with cancellable exponential backoff from `retryDelayMs` (default `500`). If mandatory input cannot fit the reduced target, the retry retains it within the configured hard limit and still reduces output tokens. Each attempt uses one SDK request. Other errors do not enter this corrective retry. `maxOutputTokens` defaults to `1024`; a `max_tokens` response continues from at most `continuationCharacters` (`768`) trailing characters, for at most `maxContinuations` (`8`) additional responses. Incomplete tool arguments are discarded and regenerated as a smaller complete operation. Partial text is buffered until the complete reply succeeds, and usage includes all attempts.
+`maxRetries` (`3`) bounds corrective retries per part, with cancellable exponential backoff from `retryDelayMs` (`500` ms). `maxTotalAttempts` (`12`) and `totalDeadlineMs` (`600,000` ms) bound the entire generation, including continuations and waits. An attempt aborts and drains its SDK transport before another starts. Failsafe disables native and outer provider retries, including `retryPolicy.mode: always`, so they cannot restart those budgets. Cancellation never triggers recovery. Smaller token limits reduce generation work but do not guarantee inference duration; the deployment's observed 82-second success and 246-second failure do not identify an exact proxy timeout.
 
-Each Failsafe request and settled response is recorded as `llm/bedrock-exchange` when the call belongs to a live session. The request record is flushed before transmission. It contains the effective payload and limits, without authentication headers. Failsafe disables prompt caching and reasoning expansion. Abbreviated history is not a semantic summary, and continuation wording still depends on the model. Profile signing, 502 recovery and continuation are tested against a local AWS-protocol fixture; real account access, SSO renewal and the corporate proxy require a deployment smoke test.
+Successful corrective reductions are retained by adapter instance, resolved route configuration and model for `adaptiveTtlMs` (`3,600,000` ms). Another session on that route/model starts with those ceilings; another route or model does not. Concurrent recoveries keep the smaller ceilings. Configuration reload, expiry or process restart restores configured values. There is no automatic upward probing or persisted calibration file.
+
+A `max_tokens` response continues from at most `continuationCharacters` (`768`) trailing characters, with at most `maxContinuations` (`8`) additional parts and the same global attempt/time limits. Completed text parts are retained across later retries; failed partial output is discarded. Incomplete tool arguments are regenerated as a smaller complete operation and never reach the executor. The complete reply is buffered before publication, and usage includes every returned attempt's usage.
+
+Each Failsafe request and settled response is recorded as `llm/bedrock-exchange` for a live session; request records flush before transmission. Records include the payload, byte/token ceilings, status, elapsed duration, first-content latency and failure classification, without authentication headers. Older character-budget records remain readable. Failsafe disables prompt caching and reasoning expansion. Abbreviation is not semantic summarization, and continuation wording depends on the model. Local AWS-protocol fixtures verify profile signing, wire limits, retries, deadlines, socket closure and continuation; real account access, SSO renewal and the corporate proxy require deployment validation.
 
 ### Sign in to a provider
 
@@ -252,7 +259,7 @@ These limits define where the adapter stops and future work begins. They are cur
 - **`GenerateOptions.stop` is unsupported** — pi-ai's common stream options cannot guarantee stop-sequence behavior across providers.
 - **Only a leading in-history `system` message becomes pi-ai's `systemPrompt`** — pi-ai has one system slot, so a later `system` message, or a leading one when `GenerateOptions.system` is also set, folds into a `user` message at its position; provider-specific placement of the prompt follows pi-ai rather than a harness-owned wire override. Images in system or assistant history, including the leading system message, fail with `UNSUPPORTED_CONTENT` on both conversion paths.
 - **HTTP status is provider-specific** — Bedrock Failsafe observes it for gateway recovery; other pi-ai error events do not expose a stable status across providers.
-- **Retry ownership depends on the mode** — ordinary provider retries belong to `dsh-llm-retry`; Normal Bedrock also retains native SDK retries. Failsafe owns bounded 502 attempts and records them as `llm/bedrock-exchange`, with terminal errors preventing outer retry amplification.
+- **Retry ownership depends on the mode** — ordinary provider retries belong to `dsh-llm-retry`; Normal Bedrock also retains native SDK retries. Failsafe owns its bounded attempts and exposes zero outer retries, including when the profile requests `always`.
 
 <a id="dev-note"></a>
 ### Dev Note
@@ -262,7 +269,7 @@ These limits define where the adapter stops and future work begins. They are cur
 
 This Dev Note is non-authoritative working context: undecided directions and notes for maintainers. Shipped behavior and accepted rationale live in the sections above, the package code, and the linked Agent Notes.
 
-- Explicit Bedrock routes accept AWS profiles and regions; Vertex, Azure and Codex still require their catalog providers. The repository pins a pi-ai patch for profile-first SigV4 and per-attempt retry control; standalone package publication must preserve that dependency patch.
+- Explicit Bedrock routes accept AWS profiles and regions; Vertex, Azure and Codex still require their catalog providers. The repository pins a pi-ai patch for profile-first SigV4, byte checks and attempt lifecycle control; standalone package publication must preserve that dependency patch.
 - The `compat` switch set is pinned to pi-ai's compat types by drift gates; an upstream upgrade that adds a field, gives a further protocol a compat type, or widens a value union fails the build until someone classifies it.
 
 </details>

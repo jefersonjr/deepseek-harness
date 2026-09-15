@@ -4,8 +4,14 @@ llm-pi-ai:
     amazon-bedrock:
       bedrock:
         mode: failsafe
-        maxRequestCharacters: 5000
-        maxOutputTokens: 1024
+        maxRequestBytes: 80000
+        maxOutputTokens: 512
+        minOutputTokens: 128
+        requestDeadlineMs: 75000
+        totalDeadlineMs: 600000
+        maxTotalAttempts: 12
+        adaptiveTtlMs: 3600000
+        outputReductionFactor: 0.5
         maxContinuations: 8
         maxRetries: 3
         # profile: work

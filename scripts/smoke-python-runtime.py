@@ -1324,6 +1324,11 @@ def smoke_sdk_snapshot(base_url: str, executable: Path, update_snapshots: bool) 
         bedrock_phases = [event["data"]["phase"] for event in result.events if event.get("type") == "llm/bedrock-exchange"]
         if bedrock_phases != ["request", "response"]:
             raise AssertionError(f"advanced snapshot lost Bedrock exchange records: {bedrock_phases}")
+        bedrock_response = next(event["data"] for event in result.events
+                                if event.get("type") == "llm/bedrock-exchange" and event["data"]["phase"] == "response")
+        expected_budgets = {"limitBytes": 80000, "maxTokens": 256, "durationMs": 43000, "firstTokenMs": 1800}
+        if any(bedrock_response.get(key) != value for key, value in expected_budgets.items()):
+            raise AssertionError("advanced snapshot lost Bedrock byte or timing diagnostics")
         feedback_types = [event.get("type") for event in result.events
                           if str(event.get("type")).startswith("feedback/")]
         if feedback_types != ["feedback/record", "feedback/record", "feedback/message-put", "feedback/message-put", "feedback/message-delete"]:

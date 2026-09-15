@@ -6,6 +6,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createModels } from '@earendil-works/pi-ai'
+import { bedrockFailsafe } from '../src/bedrock-failsafe.ts'
+import { resolveBedrockConfig } from '../src/bedrock-config.ts'
+import { resolveProfiles } from '../src/config.ts'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
@@ -30,6 +34,7 @@ const disposals: (() => Promise<unknown>)[] = []
 afterEach(async () => {
   for (const dispose of disposals.splice(0).reverse()) await dispose()
   vi.unstubAllEnvs()
+  vi.useRealTimers()
 })
 
 function crc32(bytes: Uint8Array): number {
@@ -61,10 +66,17 @@ function frame(event: string, value: unknown): Buffer {
   return result
 }
 
-type Reply = { status: 502 } | { text: string; stop?: 'max_tokens' | 'end_turn' }
+type Reply = { status: 502 | 403; message?: string; name?: string } | { stall: 'headers' | 'stream' } | { text: string; stop?: 'max_tokens' | 'end_turn' }
 async function endpoint(replies: Reply[]) {
   const requests: { body: string; tokens: number; signed: boolean }[] = []
+  const received = Promise.withResolvers<undefined>()
+  const closed = Promise.withResolvers<undefined>()
+  let active = 0
+  let maxActive = 0
   async function respond(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    active++
+    maxActive = Math.max(maxActive, active)
+    res.once('close', () => { active--; closed.resolve(undefined) })
     const chunks: Buffer[] = []
     for await (const chunk of req) {
       if (!(chunk instanceof Uint8Array)) throw new Error('Expected HTTP body bytes')
@@ -73,13 +85,20 @@ async function endpoint(replies: Reply[]) {
     const body = Buffer.concat(chunks).toString('utf8')
     const parsed = JSON.parse(body) as { inferenceConfig: { maxTokens: number } }
     requests.push({ body, tokens: parsed.inferenceConfig.maxTokens, signed: req.headers.authorization?.startsWith('AWS4-HMAC-SHA256 Credential=TESTPROFILE/') ?? false })
+    received.resolve(undefined)
     const reply = replies[requests.length - 1]
     if (reply === undefined || 'status' in reply) {
       res.writeHead(reply === undefined ? 400 : reply.status, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ message: reply === undefined ? 'Unexpected extra attempt' : 'Bad Gateway 502' }))
+      res.end(JSON.stringify({ message: reply === undefined ? 'Unexpected extra attempt' : reply.message ?? 'Bad Gateway 502', __type: reply?.name }))
       return
     }
+    if ('stall' in reply && reply.stall === 'headers') return
     res.writeHead(200, { 'content-type': 'application/vnd.amazon.eventstream' })
+    if ('stall' in reply) {
+      res.write(frame('messageStart', { role: 'assistant' }))
+      res.write(frame('contentBlockDelta', { contentBlockIndex: 0, delta: { text: 'incomplete' } }))
+      return
+    }
     res.end(Buffer.concat([
       frame('messageStart', { role: 'assistant' }),
       frame('contentBlockDelta', { contentBlockIndex: 0, delta: { text: reply.text } }),
@@ -104,10 +123,10 @@ async function endpoint(replies: Reply[]) {
   })
   const address = server.address()
   if (address === null || typeof address === 'string') throw new Error('Expected an ephemeral TCP listener')
-  return { url: `http://127.0.0.1:${address.port}`, requests }
+  return { url: `http://127.0.0.1:${address.port}`, requests, received: received.promise, closed: closed.promise, get maxActive() { return maxActive } }
 }
 
-async function composition(url: string, bedrock: BedrockConfig, withTools = false) {
+async function composition(url: string, bedrock: BedrockConfig, withTools = false, retryAlways = false) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-bedrock-sdk-'))
   disposals.push(() => rm(root, { recursive: true, force: true }))
   if (withTools) {
@@ -153,6 +172,7 @@ async function composition(url: string, bedrock: BedrockConfig, withTools = fals
     { id: 'pi', name: 'pi', config: { providers: { 'amazon-bedrock': {
       baseURL: url,
       bedrock,
+      ...retryAlways ? { retryPolicy: { mode: 'always' } } : {},
       models: [{ id: 'anthropic.claude-sonnet-4-5-20250929-v1:0' }],
     } } } },
     ...withTools ? [
@@ -173,7 +193,134 @@ async function composition(url: string, bedrock: BedrockConfig, withTools = fals
   return { ctx, session, exchanges }
 }
 
+function directTransport(url: string) {
+  const models = createModels()
+  const profile = resolveProfiles({ 'amazon-bedrock': {
+    baseURL: url, bedrock: { profile: 'default' }, models: [{ id: 'anthropic.claude-sonnet-4-5-20250929-v1:0' }],
+  } }).get('amazon-bedrock')!
+  models.setProvider(profile.piProvider!)
+  const model = models.getModel('amazon-bedrock', 'anthropic.claude-sonnet-4-5-20250929-v1:0')!
+  return { models, model }
+}
+
 describe('Bedrock through the AWS SDK', () => {
+  it('accepts a short input with instructions above the removed character limit', async () => {
+    const server = await endpoint([{ text: 'ok' }])
+    const { ctx, session } = await composition(server.url, { mode: 'failsafe' })
+    const result = await assemble(ctx, {
+      provider: 'amazon-bedrock', model: 'anthropic.claude-sonnet-4-5-20250929-v1:0', sessionId: session.id,
+      system: 'workspace instructions '.repeat(1500),
+      messages: [createUserMessage({ content: [{ type: 'text', text: 'oi' }], source: { kind: 'user' } })],
+    })
+    expect(result.finish).toEqual({ kind: 'stop' })
+    expect(Buffer.byteLength(server.requests[0]!.body)).toBeGreaterThan(30000)
+    expect(Buffer.byteLength(server.requests[0]!.body)).toBeLessThan(80000)
+  })
+
+  it('retains a successful 502 reduction for the next generation on the same route/model', async () => {
+    const server = await endpoint([{ status: 502 }, { text: 'recovered' }, { text: 'next' }])
+    const { ctx, session } = await composition(server.url, { mode: 'failsafe', retryDelayMs: 0 }, false, true)
+    for (let call = 0; call < 2; call++) {
+      const result = await assemble(ctx, {
+        provider: 'amazon-bedrock', model: 'anthropic.claude-sonnet-4-5-20250929-v1:0', sessionId: session.id,
+        messages: [createUserMessage({ content: [{ type: 'text', text: 'oi' }], source: { kind: 'user' } })],
+      })
+      expect(result.finish).toEqual({ kind: 'stop' })
+    }
+    expect(server.requests.map(request => request.tokens)).toEqual([512, 256, 256])
+    expect(ctx.llm.providerRetryPolicy('amazon-bedrock')).toMatchObject({ mode: 'normal', maxRetries: 0 })
+  })
+
+  it.each([{ message: 'Forbidden' }, { message: 'Request body too large', name: 'AccessDeniedException' }])('does not retry an ambiguous or AWS permission 403: %j', async (failure) => {
+    const server = await endpoint([{ status: 403, ...failure }])
+    const { ctx, session } = await composition(server.url, { mode: 'failsafe' })
+    const result = await assemble(ctx, {
+      provider: 'amazon-bedrock', model: 'anthropic.claude-sonnet-4-5-20250929-v1:0', sessionId: session.id,
+      messages: [createUserMessage({ content: [{ type: 'text', text: 'oi' }], source: { kind: 'user' } })],
+    })
+    expect(result.finish).toMatchObject({ kind: 'error' })
+    expect(server.requests).toHaveLength(1)
+  })
+
+  it('reduces actual wire bytes after an identified proxy 403', async () => {
+    const server = await endpoint([{ status: 403, message: 'Request body too large' }, { text: 'ok' }])
+    const { ctx, session, exchanges } = await composition(server.url, { mode: 'failsafe', retryDelayMs: 0 })
+    const result = await assemble(ctx, {
+      provider: 'amazon-bedrock', model: 'anthropic.claude-sonnet-4-5-20250929-v1:0', sessionId: session.id,
+      messages: ['old '.repeat(4000), 'oi'].map(text => createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })),
+    })
+    expect(result.finish).toEqual({ kind: 'stop' })
+    expect(server.requests).toHaveLength(2)
+    expect(Buffer.byteLength(server.requests[1]!.body)).toBeLessThan(Buffer.byteLength(server.requests[0]!.body) * .75)
+    expect(exchanges[1]?.failure).toBe('proxy-size')
+  })
+
+  it.each(['headers', 'stream'] as const)('aborts and drains a stalled SDK response at the absolute deadline: %s', async (stall) => {
+    const server = await endpoint([{ stall }, { text: 'recovered' }])
+    await composition(server.url, { mode: 'failsafe' })
+    const { models, model } = directTransport(server.url)
+    const abort = new AbortController()
+    const partial = Promise.withResolvers<undefined>()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const events = bedrockFailsafe(async function* (context, options) {
+      for await (const event of models.streamSimple(model, context, options)) {
+        if (event.type === 'text_delta') partial.resolve(undefined)
+        yield event
+      }
+    }, { messages: [{ role: 'user', content: 'oi', timestamp: 0 }] }, { signal: abort.signal, env: { AWS_PROFILE: 'default' } },
+    resolveBedrockConfig({ requestDeadlineMs: 1000, retryDelayMs: 0 }))
+    const pending = Array.fromAsync(events)
+    const settled = pending.then(value => ({ value }), (error: unknown) => ({ error }))
+    disposals.push(async () => { abort.abort(); await settled })
+    await (stall === 'headers' ? server.received : partial.promise)
+    await vi.advanceTimersByTimeAsync(1000)
+    const result = await settled
+    await server.closed
+    expect(result).toHaveProperty('value')
+    if (!('value' in result)) throw result.error
+    expect(result.value.find(event => event.type === 'done')?.message.content).toEqual([{ type: 'text', text: 'recovered' }])
+    expect(server.requests.map(request => request.tokens)).toEqual([512, 256])
+    expect(server.maxActive).toBe(1)
+  })
+
+  it('checks serialized HTTP bytes even without the onPayload compactor', async () => {
+    const server = await endpoint([{ text: 'negative control' }])
+    await composition(server.url, { mode: 'normal' })
+    const { models, model } = directTransport(server.url)
+    const context = { messages: [{ role: 'user' as const, content: 'ação😀'.repeat(100), timestamp: 0 }] }
+    const blocked = await Array.fromAsync(models.streamSimple(model, context, { env: { AWS_PROFILE: 'default', DSH_BEDROCK_MAX_REQUEST_BYTES: '64' } }))
+    const failed = blocked.at(-1)
+    expect(failed?.type).toBe('error')
+    if (failed?.type !== 'error') throw new Error('Expected byte guard rejection')
+    expect(failed.error.errorMessage).toContain('BEDROCK_REQUEST_TOO_LARGE')
+    expect(server.requests).toEqual([])
+    const ordinary = await Array.fromAsync(models.streamSimple(model, context, { env: { AWS_PROFILE: 'default' } }))
+    expect(ordinary.at(-1)?.type).toBe('done')
+    expect(server.requests).toHaveLength(1)
+  })
+
+  it('drains a caller-cancelled stream without recovering or publishing partial text', async () => {
+    const server = await endpoint([{ stall: 'stream' }])
+    await composition(server.url, { mode: 'failsafe' })
+    const { models, model } = directTransport(server.url)
+    const abort = new AbortController()
+    const partial = Promise.withResolvers<undefined>()
+    const events = bedrockFailsafe(async function* (context, options) {
+      for await (const event of models.streamSimple(model, context, options)) {
+        if (event.type === 'text_delta') partial.resolve(undefined)
+        yield event
+      }
+    }, { messages: [{ role: 'user', content: 'oi', timestamp: 0 }] }, { signal: abort.signal }, resolveBedrockConfig())
+    const settled = Array.fromAsync(events).then(value => ({ value }), (error: unknown) => ({ error }))
+    disposals.push(async () => { abort.abort(); await settled })
+    await partial.promise
+    abort.abort()
+    expect(await settled).toMatchObject({ error: { name: 'AbortError' } })
+    await server.closed
+    expect(server.requests).toHaveLength(1)
+    expect(server.maxActive).toBe(1)
+  })
+
   it('reads default shared profile/region and corrects each 502 before one bounded SDK attempt', async () => {
     const server = await endpoint([{ status: 502 }, { text: 'part one', stop: 'max_tokens' }, { text: ' and two' }])
     const { ctx, session, exchanges } = await composition(server.url, { mode: 'failsafe', retryDelayMs: 1 })
@@ -183,9 +330,9 @@ describe('Bedrock through the AWS SDK', () => {
     })
     expect(result.message.content).toEqual([{ type: 'text', text: 'part one and two' }])
     expect(result.finish).toEqual({ kind: 'stop' })
-    expect(server.requests.map(request => request.tokens)).toEqual([1024, 768, 768])
-    expect(server.requests.every(request => request.signed && Array.from(request.body).length <= 5000)).toBe(true)
-    expect(exchanges.filter(event => event.phase === 'request').map(event => event.limit)).toEqual([5000, 3750, 3750])
+    expect(server.requests.map(request => request.tokens)).toEqual([512, 256, 256])
+    expect(server.requests.every(request => request.signed && Buffer.byteLength(request.body, 'utf8') <= 80000)).toBe(true)
+    expect(exchanges.filter(event => event.phase === 'request').map(event => event.limitBytes)).toEqual([80000, 80000, 80000])
     expect(exchanges.map(event => event.phase)).toEqual(['request', 'response', 'request', 'response', 'request', 'response'])
     expect(exchanges[0]?.request).not.toContain('test-only-secret')
     expect(server.requests[2]?.body).toContain('part one')
@@ -194,7 +341,7 @@ describe('Bedrock through the AWS SDK', () => {
 
   it('keeps Normal payloads and max_tokens unchanged even above the failsafe limit', async () => {
     const server = await endpoint([{ text: 'partial', stop: 'max_tokens' }])
-    const { ctx, session, exchanges } = await composition(server.url, { mode: 'normal', maxRequestCharacters: 20 })
+    const { ctx, session, exchanges } = await composition(server.url, { mode: 'normal', maxRequestBytes: 20 })
     const result = await assemble(ctx, {
       provider: 'amazon-bedrock', model: 'anthropic.claude-sonnet-4-5-20250929-v1:0', sessionId: session.id, maxTokens: 1234,
       messages: [createUserMessage({ content: [{ type: 'text', text: 'ação'.repeat(1500) }], source: { kind: 'user' } })],
@@ -202,14 +349,14 @@ describe('Bedrock through the AWS SDK', () => {
     expect(result.finish).toEqual({ kind: 'max-tokens' })
     expect(server.requests).toHaveLength(1)
     expect(server.requests[0]?.tokens).toBe(1234)
-    expect(Array.from(server.requests[0]!.body).length).toBeGreaterThan(5000)
+    expect(Buffer.byteLength(server.requests[0]!.body)).toBeGreaterThan(5000)
     expect(server.requests[0]?.body).not.toContain('Split large file writes')
     expect(exchanges).toEqual([])
   })
 
   it('diagnoses a short input blocked by mandatory instructions before any HTTP request', async () => {
     const server = await endpoint([])
-    const { ctx, session, exchanges } = await composition(server.url, { mode: 'failsafe' })
+    const { ctx, session, exchanges } = await composition(server.url, { mode: 'failsafe', maxRequestBytes: 5000 })
     const result = await assemble(ctx, {
       provider: 'amazon-bedrock', model: 'anthropic.claude-sonnet-4-5-20250929-v1:0', sessionId: session.id,
       system: 'private-instruction '.repeat(300),
@@ -219,7 +366,7 @@ describe('Bedrock through the AWS SDK', () => {
       {
         "failure": {
           "code": "BEDROCK_REQUEST_TOO_LARGE",
-          "message": "Bedrock failsafe request needs 6300 characters after compaction; maxRequestCharacters is 5000. JSON characters: system=6143, tools=0, messages=43, other=114. This request was blocked before sending. Check the active agent preset and reduce its instructions/tools or the latest input. Selecting the Bedrock provider alone does not select the compact bedrock agent preset.",
+          "message": "Bedrock failsafe request needs 6299 UTF-8 bytes after compaction; effective maxRequestBytes is 5000. JSON bytes: system=6143, tools=0, messages=43, other=113. This request was blocked before sending. Check the active agent preset and reduce its instructions/tools or the latest input. Selecting the Bedrock provider alone does not select the compact bedrock agent preset.",
         },
         "kind": "error",
       }
@@ -229,9 +376,9 @@ describe('Bedrock through the AWS SDK', () => {
     expect(exchanges).toEqual([])
   })
 
-  it('fits the shipped compact preset and its actual tool schema into 5000 characters', async () => {
+  it('fits the shipped compact preset and its actual tool schema into a custom 5000-byte limit', async () => {
     const server = await endpoint([{ text: 'compact preset ready' }])
-    const { ctx } = await composition(server.url, { mode: 'failsafe' }, true)
+    const { ctx } = await composition(server.url, { mode: 'failsafe', maxRequestBytes: 5000 }, true)
     const handle = await ctx.agents.create({
       sessionId: SessionId('bedrock-preset-test'),
       setup: async (agentCtx) => { await ctx.agentPresets.mount(agentCtx, 'bedrock') },
@@ -244,7 +391,7 @@ describe('Bedrock through the AWS SDK', () => {
       messages: [createUserMessage({ content: [{ type: 'text', text: 'Read the workspace instructions.' }], source: { kind: 'user' } })],
     })
     expect(result.finish).toEqual({ kind: 'stop' })
-    expect(Array.from(server.requests[0]!.body).length).toBeLessThanOrEqual(5000)
+    expect(Buffer.byteLength(server.requests[0]!.body)).toBeLessThanOrEqual(5000)
     expect(server.requests[0]?.body).not.toContain('"name":"pwsh"')
     await handle.dispose()
   })

@@ -6,17 +6,13 @@ English | [中文](2026-09-14-bedrock-failsafe-cmd.zh.md)
 
 ## Problem
 
-Controlled proxies can reject large Bedrock requests with HTTP 502, while long replies can stop at the output-token limit with incomplete tool arguments. Operators need local AWS profiles, a configurable character budget and a Windows command surface that does not depend on PowerShell.
+Controlled proxies require bounded Bedrock requests and recoverable output, while Windows deployments need AWS profiles and command execution without PowerShell.
 
 ## Decision
 
-The pi-ai adapter owns the Bedrock policy. Normal preserves ordinary transport behavior. Failsafe defaults to 5,000 Unicode code points per serialized SDK input and exposes that value as `bedrock.maxRequestCharacters`. The SDK input count includes JSON syntax and base64 data plus the URL-bound model id. The adapter preserves system instructions, tool definitions and the latest user input, abbreviates earlier data, and rejects irreducible input before transmission. The compact `bedrock` preset supplies a small prompt and shell catalog without automatically changing a session's model.
+The [adaptive proxy policy](2026-09-15-bedrock-adaptive-proxy-failsafe.md) owns byte budgets, deadlines, corrective retries, continuation and exchange diagnostics. It partially supersedes this note's character-budget decision. This note remains authoritative for AWS authentication and Windows shell selection.
 
-Oversized-request errors report only character totals for system instructions, tools, messages and the remaining JSON. The counts identify excess mandatory context even when the user sends a short greeting, without copying private content into the error. The diagnostic distinguishes provider selection from agent preset selection and directs users to inspect the active composition instead of increasing the limit or retrying the same payload.
-
-Profile selection prefers route configuration, a stored AWS profile, `AWS_PROFILE`, then `default`; credentials and refresh remain AWS SDK responsibilities. A pinned pi-ai patch forces SigV4 for a selected profile and disables native retries only for Failsafe attempts. Explicit API-key references remain opt-in bearer authentication. A 502 reduces input/output budgets and triggers bounded, cancellable retries. Token-limited replies use compact continuations; incomplete tool calls are regenerated and never executed. The wrapper buffers output until a complete reply succeeds, counts all attempt usage and pulses the stream idle watchdog as provider events arrive.
-
-The `llm/bedrock-exchange` session event records each effective request and settled response. Requests flush before network I/O when a live session is available. Authentication headers are excluded. The event preserves the actual abbreviated context and synthetic continuation that cannot be reconstructed from the ordinary assistant message alone.
+Profile selection prefers route configuration, a stored AWS profile, `AWS_PROFILE`, then `default`; credentials and refresh remain AWS SDK responsibilities. The pinned pi-ai patch forces SigV4 for a selected profile. Explicit API-key references remain opt-in bearer authentication. The compact `bedrock` preset supplies a small prompt and shell catalog without automatically changing a session's model.
 
 The local and sandbox Bash executors also accept the `cmd` dialect. They own temporary UTF-8 batch files through subprocess settlement, avoiding nested command-line quoting. The tool advertises `cmd` and batch syntax when that dialect is selected. The shared base and Web presets disable PowerShell rows on Windows and use cmd; POSIX keeps Bash. The minimal preset uses one-shot cmd on Windows. This selection does not impose an operating-system executable deny policy.
 
@@ -28,7 +24,7 @@ The root `start-harness.cmd` starts the Web profile through the source `dsh` ent
 
 **Cut every string to fit.** Truncating instructions, schemas or tool arguments silently changes the task or creates invalid operations. Mandatory input fails visibly when it cannot fit.
 
-**Treat 5k as tokens or bytes.** The deployment requirement specifies characters per request. Unicode code points and the serialized envelope provide an explicit, testable interpretation.
+**Use character counts as the proxy budget.** The [adaptive proxy policy](2026-09-15-bedrock-adaptive-proxy-failsafe.md) replaces this decision with UTF-8 bytes after deployment measurements identified body size and request duration as independent restrictions.
 
 **Reuse PowerShell behind a cmd label.** That would advertise the wrong language and retain a dependency the deployment excludes. The executor launches cmd itself and exposes its batch semantics.
 

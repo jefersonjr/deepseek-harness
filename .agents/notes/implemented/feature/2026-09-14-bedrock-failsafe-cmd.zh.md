@@ -6,17 +6,13 @@ Status: implemented
 
 ## 问题
 
-受控代理可能以 HTTP 502 拒绝大型 Bedrock 请求，长回复也可能在输出 token 上限处停止，留下不完整工具参数。运维需要本地 AWS profile、可配置字符预算，以及不依赖 PowerShell 的 Windows 命令界面。
+受控代理需要有界 Bedrock 请求及可恢复输出，而 Windows 部署需要 AWS profile 和不依赖 PowerShell 的命令执行。
 
 ## 决策
 
-pi-ai 适配器负责 Bedrock 策略。Normal 保留普通传输行为。Failsafe 默认每次序列化 SDK 输入最多 5,000 个 Unicode 码点，通过 `bedrock.maxRequestCharacters` 配置。SDK 输入计数包含 JSON 语法、base64 数据和移入 URL 的模型 id。适配器保留系统指令、工具定义和最新用户输入，缩写较早数据，并在传输前拒绝无法进一步缩减的输入。精简 `bedrock` preset 提供小型 prompt 和 shell 目录，不自动更改会话模型。
+[自适应代理策略](2026-09-15-bedrock-adaptive-proxy-failsafe.zh.md) 负责字节预算、期限、纠正重试、续写及交换诊断。它部分取代本记录的字符预算决策。本记录仍负责 AWS 认证和 Windows shell 选择。
 
-请求过大错误只报告系统指令、工具、消息及其余 JSON 的字符总数。即使用户仅发送简短问候，这些计数也能指出过大的必需上下文，且不会将私有内容复制到错误中。诊断区分提供方选择与 agent preset 选择，并引导用户检查实际启用的配置，而非提高上限或重试同一载荷。
-
-profile 依次选择路由配置、已存 AWS profile、`AWS_PROFILE`、`default`；凭据与刷新仍由 AWS SDK 负责。固定的 pi-ai 补丁为所选 profile 强制 SigV4，仅为 Failsafe 尝试禁用原生重试。显式 API-key 引用仍可选择 bearer 认证。502 会缩减输入／输出预算并触发有界、可取消重试。达到 token 上限后使用精简续写；不完整工具调用会重新生成，绝不执行。包装器缓冲到完整回复成功，统计所有尝试 usage，并在提供方事件到达时重置流空闲计时器。
-
-`llm/bedrock-exchange` 会话事件记录每个有效请求及已结束响应。存在活动会话时，请求在网络 I/O 前 flush，不含认证标头。该事件保留无法仅从普通 assistant 消息重建的实际缩写上下文及合成续写。
+profile 选择顺序为路由配置、存储的 AWS profile、`AWS_PROFILE`、`default`；凭据和刷新仍由 AWS SDK 负责。固定的 pi-ai 补丁为选中的 profile 强制使用 SigV4。显式 API-key 引用仍是可选的 bearer 认证。精简 `bedrock` preset 提供小型提示和 shell 目录，不会自动更改会话模型。
 
 本地和沙箱 Bash 执行器也接受 `cmd` 方言。它们管理临时 UTF-8 batch 文件直到 subprocess 结束，避免嵌套命令行转义。选择此方言后，工具公布 `cmd` 和 batch 语法。共享 base 与 Web preset 在 Windows 禁用 PowerShell 行并使用 cmd，POSIX 保留 Bash。minimal preset 在 Windows 使用一次性 cmd。此选择不施加操作系统级可执行文件拒绝策略。
 
@@ -28,7 +24,7 @@ profile 依次选择路由配置、已存 AWS profile、`AWS_PROFILE`、`default
 
 **截断所有字符串。** 截断指令、schema 或工具参数会悄悄改变任务或产生无效操作。无法容纳的必要输入会显式失败。
 
-**把 5k 当作 token 或字节。** 部署需求指定每次请求的字符数。Unicode 码点与序列化信封给出明确、可测试的解释。
+**按字符计数限制代理预算。** 部署测量表明正文大小和请求时长是独立限制，[自适应代理策略](2026-09-15-bedrock-adaptive-proxy-failsafe.zh.md) 因此用 UTF-8 字节取代此决策。
 
 **在 cmd 标签后复用 PowerShell。** 这会公布错误语言并保留部署排除的依赖。执行器直接启动 cmd 并公开其 batch 语义。
 
