@@ -18,6 +18,8 @@ profile 依次选择路由配置、已存 AWS profile、`AWS_PROFILE`、`default
 
 本地和沙箱 Bash 执行器也接受 `cmd` 方言。它们管理临时 UTF-8 batch 文件直到 subprocess 结束，避免嵌套命令行转义。选择此方言后，工具公布 `cmd` 和 batch 语法。共享 base 与 Web preset 在 Windows 禁用 PowerShell 行并使用 cmd，POSIX 保留 Bash。minimal preset 在 Windows 使用一次性 cmd。此选择不施加操作系统级可执行文件拒绝策略。
 
+根目录的 `start-harness.cmd` 通过源码 `dsh` 入口启动 Web profile。仅在缺少 pnpm 安装标记时安装依赖，每次启动前构建，确保源码修改进入所提供的产物。包脚本继承 `cmd.exe` 作为 shell。启动脚本禁用基于 PowerShell 的浏览器打开程序，继承 AWS 配置，转发 Web 参数时不进行第二次 batch 展开，并保留子进程退出码。
+
 ## 考虑的替代方案
 
 **重试相同载荷。** 代理大小错误很可能再次发生，SDK 和应用重试叠加会放大流量。Failsafe 缩减预算，并为每个纠正请求允许一次原生尝试。

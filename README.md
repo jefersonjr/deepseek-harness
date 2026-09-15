@@ -40,6 +40,8 @@ pnpm dsh web
 
 `pnpm run build` prepares the repository artifacts. `pnpm dsh web` uses those built artifacts without rebuilding.
 
+On Windows, install the [development prerequisites](docs/development.md), then run [`start-harness.cmd`](start-harness.cmd) or double-click it. The script uses `cmd.exe`, installs missing dependencies, builds the checkout, and starts the Web UI with the repository as its workspace. Open the access link printed in the terminal; automatic browser opening is disabled because it requires PowerShell. Pass Web options directly, for example `start-harness.cmd --port 3081 --no-open`. Preparation or startup failures return a nonzero exit code.
+
 ## Community and support
 
 - Submit feedback or bug reports through [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions).

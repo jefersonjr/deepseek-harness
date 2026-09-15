@@ -18,6 +18,8 @@ The `llm/bedrock-exchange` session event records each effective request and sett
 
 The local and sandbox Bash executors also accept the `cmd` dialect. They own temporary UTF-8 batch files through subprocess settlement, avoiding nested command-line quoting. The tool advertises `cmd` and batch syntax when that dialect is selected. The shared base and Web presets disable PowerShell rows on Windows and use cmd; POSIX keeps Bash. The minimal preset uses one-shot cmd on Windows. This selection does not impose an operating-system executable deny policy.
 
+The root `start-harness.cmd` starts the Web profile through the source `dsh` entry. It installs dependencies only when the pnpm installation marker is absent and builds before every launch so source edits reach the served artifacts. Package scripts inherit `cmd.exe` as their shell. The launcher disables the PowerShell-based browser opener, inherits AWS configuration, forwards Web arguments without a second batch expansion, and preserves the child exit code.
+
 ## Alternatives considered
 
 **Retry the same payload.** A proxy size failure is likely to recur, and overlapping SDK and application retries amplify traffic. Failsafe reduces budgets and allows one native attempt per corrective request.
