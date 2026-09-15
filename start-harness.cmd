@@ -5,6 +5,8 @@ if errorlevel 1 exit /b 1
 
 set "ComSpec=%SystemRoot%\System32\cmd.exe"
 set "npm_config_script_shell=%ComSpec%"
+rem Source archives have no Git metadata; installation and builds must not probe Git.
+set "DSH_SOURCE_ARCHIVE=1"
 
 where node.exe >nul 2>nul
 if errorlevel 1 goto missing_node
@@ -25,7 +27,7 @@ call "%DSH_PNPM%" install --frozen-lockfile
 if errorlevel 1 goto command_failed
 
 :build
-echo [DeepSeek Harness] Building the checkout...
+echo [DeepSeek Harness] Building the source directory...
 call "%DSH_PNPM%" run build
 if errorlevel 1 goto command_failed
 

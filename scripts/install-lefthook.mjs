@@ -689,6 +689,7 @@ function probePairingMergeDriver(root) {
 }
 
 async function main() {
+  if (process.env.DSH_SOURCE_ARCHIVE === '1') return
   if (process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true') return
   if (typeof lefthookPackage.bin?.lefthook !== 'string') return
   const probe = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' })

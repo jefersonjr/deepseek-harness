@@ -10,7 +10,7 @@ The setup tutorial takes a new contributor from prerequisites to a checked check
 
 - Node.js supports 22.19+ and 24+. CI covers 22.19, 24, and 26; see the [Node engine floor Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.md).
 - Corepack-enabled pnpm. The repo pins `pnpm@11.7.0` in `package.json`; run `corepack enable` if `pnpm --version` does not resolve through Corepack.
-- Git 2.26 or newer; hook setup enables Git's worktree-specific configuration extension.
+- Git 2.26 or newer for contributor workflows; hook setup enables Git's worktree-specific configuration extension. The [Windows source-ZIP launcher](../start-harness.cmd) does not require Git.
 - Optional: a DeepSeek API key for the Web, headless, and ACP automation demos and real-API e2e tests.
 
 ### Windows and WSL 2
@@ -30,6 +30,8 @@ pnpm install
 ```
 
 The install also configures worktree-local Lefthook hooks and the `dsh-translation-pairing` Git merge driver through `scripts/install-lefthook.mjs`. The [worktree-local hooks Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.md) owns the hook-path safety contract; the [automatic pairing merges Agent Note](../.agents/notes/implemented/process/2026-08-08-automatic-translation-pairing-merges.md) owns the merge driver.
+
+The Windows launcher sets `DSH_SOURCE_ARCHIVE=1`: installation skips Git integration, and complete builds retain the package version without probing Git or inheriting commit/dirty metadata. It works in extracted ZIPs and checkouts. The root installer owns hook setup for contributor installs; pnpm disables the dependency's separate Lefthook installer while retaining other approved dependency build scripts. Official builds still require source-commit metadata.
 
 If either integration is missing because dependencies were restored from cache or `postinstall` was skipped, install them manually:
 

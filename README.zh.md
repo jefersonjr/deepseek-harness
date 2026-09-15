@@ -44,7 +44,7 @@ pnpm dsh web
 
 `pnpm run build` 会准备仓库产物。`pnpm dsh web` 会直接使用这些已构建产物，不会重新构建。
 
-在 Windows 上，安装[开发前置依赖](docs/development.zh.md)后，运行 [`start-harness.cmd`](start-harness.cmd) 或双击该文件。脚本使用 `cmd.exe`，安装缺失的依赖，构建当前源码，并以仓库目录为工作区启动 Web UI。请打开终端打印的访问链接；自动打开浏览器需要 PowerShell，因此已禁用。可直接传入 Web 选项，例如 `start-harness.cmd --port 3081 --no-open`。准备或启动失败时会返回非零退出码。
+在 Windows 上，安装 Node.js 22.19+（22.x）或 24+ 以及 pnpm 11.7.0，解压源码 ZIP，然后运行 [`start-harness.cmd`](start-harness.cmd) 或双击该文件。不需要 Git 或 `.git` 目录。脚本使用 `cmd.exe`，安装缺失的依赖，构建源码，并以该目录为工作区启动 Web UI。请打开终端打印的访问链接；自动打开浏览器需要 PowerShell，因此已禁用。可直接传入 Web 选项，例如 `start-harness.cmd --port 3081 --no-open`。准备或启动失败时会返回非零退出码。
 
 ## 社区与支持
 

@@ -12,7 +12,7 @@
 
 - Node.js 支持 22.19+ 与 24+。CI 覆盖 22.19、24 和 26；见 [Node 引擎下限 Agent Note](../.agents/notes/implemented/process/2026-07-06-node-engine-floor.zh.md)。
 - 启用了 Corepack 的 pnpm。仓库在 `package.json` 中固定使用 `pnpm@11.7.0`；如果 `pnpm --version` 无法通过 Corepack 解析，请先运行 `corepack enable`。
-- Git 2.26 或更高版本；钩子设置会启用 Git 的 worktree 专属配置扩展。
+- 贡献者工作流需要 Git 2.26 或更高版本；钩子设置会启用 Git 的 worktree 专属配置扩展。[Windows 源码 ZIP 启动脚本](../start-harness.cmd)不需要 Git。
 - 可选：一个 DeepSeek API key，用于 Web、headless 和 ACP（Agent Client Protocol）自动化 agent（智能体）演示以及真实 API 的 e2e 测试。
 
 ### Windows 与 WSL 2
@@ -23,6 +23,8 @@
 
 在每种环境中分别安装依赖，因为不同操作系统使用的原生二进制和链接可能不同。测试结果适用于执行测试的环境；Windows 特有行为仍需在原生 Windows 上验证。
 
+<a id="first-time-setup"></a>
+
 ### 首次搭建
 
 在仓库根目录安装依赖：
@@ -32,6 +34,8 @@ pnpm install
 ```
 
 安装过程还会通过 `scripts/install-lefthook.mjs` 配置 worktree 本地的 Lefthook 钩子和 `dsh-translation-pairing` Git 合并驱动。[worktree 本地钩子 Agent Note](../.agents/notes/implemented/process/2026-07-27-worktree-local-lefthook.zh.md) 负责钩子路径的安全约定；[自动配对合并 Agent Note](../.agents/notes/implemented/process/2026-08-08-automatic-translation-pairing-merges.zh.md) 负责合并驱动。
+
+Windows 启动脚本设置 `DSH_SOURCE_ARCHIVE=1`：安装时跳过 Git 集成，完整构建保留包版本，不探测 Git，也不继承 commit/dirty 元数据。它适用于解压的 ZIP 和 checkout。贡献者安装由根安装程序负责钩子设置；pnpm 禁用依赖自身的 Lefthook 安装程序，同时保留其他已批准的依赖构建脚本。官方构建仍需要源码 commit 元数据。
 
 如果依赖是从缓存恢复或 `postinstall` 被跳过而导致任一集成缺失，请手动安装：
 

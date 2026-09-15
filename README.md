@@ -40,7 +40,7 @@ pnpm dsh web
 
 `pnpm run build` prepares the repository artifacts. `pnpm dsh web` uses those built artifacts without rebuilding.
 
-On Windows, install the [development prerequisites](docs/development.md), then run [`start-harness.cmd`](start-harness.cmd) or double-click it. The script uses `cmd.exe`, installs missing dependencies, builds the checkout, and starts the Web UI with the repository as its workspace. Open the access link printed in the terminal; automatic browser opening is disabled because it requires PowerShell. Pass Web options directly, for example `start-harness.cmd --port 3081 --no-open`. Preparation or startup failures return a nonzero exit code.
+On Windows, install Node.js 22.19+ (22.x) or 24+ and pnpm 11.7.0, extract the source ZIP, then run [`start-harness.cmd`](start-harness.cmd) or double-click it. Git and a `.git` directory are not required. The script uses `cmd.exe`, installs missing dependencies, builds the source, and starts the Web UI with that directory as its workspace. Open the access link printed in the terminal; automatic browser opening is disabled because it requires PowerShell. Pass Web options directly, for example `start-harness.cmd --port 3081 --no-open`. Preparation or startup failures return a nonzero exit code.
 
 ## Community and support
 

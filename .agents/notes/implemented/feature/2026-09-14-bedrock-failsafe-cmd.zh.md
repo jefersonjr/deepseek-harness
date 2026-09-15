@@ -18,6 +18,8 @@ profile 选择顺序为路由配置、存储的 AWS profile、`AWS_PROFILE`、`d
 
 根目录的 `start-harness.cmd` 通过源码 `dsh` 入口启动 Web profile。仅在缺少 pnpm 安装标记时安装依赖，每次启动前构建，确保源码修改进入所提供的产物。包脚本继承 `cmd.exe` 作为 shell。启动脚本禁用基于 PowerShell 的浏览器打开程序，继承 AWS 配置，转发 Web 参数时不进行第二次 batch 展开，并保留子进程退出码。
 
+源码 ZIP 分发不包含 Git 元数据。启动脚本选择[源码归档设置](../../../../docs/development.zh.md#first-time-setup)，让安装与构建不调用 Git；UI 保留包版本，不虚构 commit。根安装程序仍是贡献者钩子设置的唯一负责人，避免依赖自身的独立安装程序无法遵守此选择。
+
 ## 考虑的替代方案
 
 **重试相同载荷。** 代理大小错误很可能再次发生，SDK 和应用重试叠加会放大流量。Failsafe 缩减预算，并为每个纠正请求允许一次原生尝试。

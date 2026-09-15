@@ -18,6 +18,8 @@ The local and sandbox Bash executors also accept the `cmd` dialect. They own tem
 
 The root `start-harness.cmd` starts the Web profile through the source `dsh` entry. It installs dependencies only when the pnpm installation marker is absent and builds before every launch so source edits reach the served artifacts. Package scripts inherit `cmd.exe` as their shell. The launcher disables the PowerShell-based browser opener, inherits AWS configuration, forwards Web arguments without a second batch expansion, and preserves the child exit code.
 
+Source ZIP distributions omit Git metadata. The launcher selects the [source-archive setup](../../../../docs/development.md#first-time-setup) so installation and build never invoke Git; the UI retains the package version without inventing a commit. The root installer remains the sole owner of contributor hook setup, avoiding a separate dependency installer that cannot honor this selection.
+
 ## Alternatives considered
 
 **Retry the same payload.** A proxy size failure is likely to recur, and overlapping SDK and application retries amplify traffic. Failsafe reduces budgets and allows one native attempt per corrective request.

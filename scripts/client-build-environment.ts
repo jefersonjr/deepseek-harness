@@ -109,6 +109,7 @@ export function repositoryGitDirty(root: string): boolean | undefined {
 /**
  * Resolve the public environment for a complete default build from one checkout.
  * Repository-owned metadata replaces inherited values; other public values pass through.
+ * DSH_SOURCE_ARCHIVE=1 omits commit and dirty metadata without invoking Git.
  * @param root - repository root supplying version and Git metadata.
  * @param environment - caller environment supplying optional commit and public extensions.
  * @returns complete public client environment for the default build.
@@ -121,6 +122,9 @@ export function repositoryClientBuildEnvironment(
   delete inherited.DSH_CLIENT_COMMIT_HASH
   delete inherited.DSH_CLIENT_GIT_DIRTY
   delete inherited.DSH_CLIENT_VERSION
+  if (environment.DSH_SOURCE_ARCHIVE === '1') {
+    return { ...inherited, DSH_CLIENT_VERSION: repositoryVersion(root) }
+  }
   const dirty = repositoryGitDirty(root)
   return {
     ...inherited,
