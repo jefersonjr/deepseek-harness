@@ -27,6 +27,7 @@
   ],
   "license": "MIT",
   "peerDependencies": {
+    "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-attachment": "workspace:^",
     "@deepseek-ai/dsh-authorization": "workspace:^",
@@ -38,12 +39,14 @@
     "@deepseek-ai/dsh-timeout": "workspace:^"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "3.1048.0",
     "@deepseek-ai/dsh-brand": "workspace:^",
     "@deepseek-ai/dsh-util-values": "workspace:^",
     "@deepseek-ai/schemastery": "workspace:^",
     "@earendil-works/pi-ai": "^0.85.1"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-attachment": "workspace:^",
     "@deepseek-ai/dsh-authorization": "workspace:^",

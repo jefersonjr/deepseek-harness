@@ -10,6 +10,8 @@
  */
 
 import { Context } from '@deepseek-ai/cordis'
+import { prepareShellCommand } from './command.ts'
+import type { PreparedShellCommand } from './command.ts'
 import z from '@deepseek-ai/schemastery'
 import { SHELL_SETTINGS_NAMESPACE, ShellExecutor } from '@deepseek-ai/dsh-shell'
 import type { ShellExecRequest, ShellExecSpec, ShellProcess, ShellProcessRead, ShellRunResult, CollectedOutput } from '@deepseek-ai/dsh-shell'
@@ -39,6 +41,8 @@ const DEFAULT_MAX_SPILL_BYTES = 64 * 1024 * 1024
 
 /** Plugin config (all optional — `static Config` supplies the defaults). */
 export interface Config {
+  /** Interpreter dialect; Windows Bedrock compositions select cmd. */
+  shell?: 'bash' | 'cmd'
   /** Default working directory for commands (default: process.cwd()). */
   cwd?: string
   /** Default foreground timeout in milliseconds. */
@@ -103,6 +107,7 @@ export class LocalBashExecutor extends ShellExecutor {
   static inject = ['subprocess']
 
   static Config: z<Config> = z.object({
+    shell: z.union(['bash', 'cmd']).default('bash'),
     cwd: z.string(),
     timeoutMs: z.number().default(120_000),
     maxTimeoutMs: z.number().default(600_000),
@@ -117,6 +122,18 @@ export class LocalBashExecutor extends ShellExecutor {
   /** Validated config (schemastery applied the defaults before construction). */
   get config(): ResolvedConfig {
     return this.source()
+  }
+
+  /** The interpreter dialect exposed by the active executor. */
+  override get dialect(): 'bash' | 'cmd' { return this.config.shell }
+
+  /**
+   * Own interpreter resources through foreground/background settlement.
+   * @param command - source for this executor's configured interpreter.
+   * @returns the argv and temporary command-file disposer.
+   */
+  protected prepareCommand(command: string): PreparedShellCommand {
+    return prepareShellCommand(command, this.config.shell)
   }
 
   constructor(ctx: Context, config: Config) {
@@ -211,7 +228,8 @@ export class LocalBashExecutor extends ShellExecutor {
   }
 
   async run(spec: ShellExecSpec): Promise<ShellRunResult> {
-    return this.runArgv(spec, ['bash', '-c', spec.command])
+    using command = this.prepareCommand(spec.command)
+    return await this.runArgv(spec, command.argv)
   }
 
   /**
@@ -242,7 +260,27 @@ export class LocalBashExecutor extends ShellExecutor {
   }
 
   start(spec: ShellExecSpec): ShellProcess {
-    return this.startArgv(spec, ['bash', '-c', spec.command])
+    const command = this.prepareCommand(spec.command)
+    return this.startOwnedCommand(spec, command.argv, command)
+  }
+
+  /**
+   * Start a command and release its files before the public completion promise settles.
+   * @param spec - resolved execution settings.
+   * @param argv - local or sandbox-wrapped command invocation.
+   * @param command - resources retained while the process is running.
+   * @returns the process with cleanup included in its lifetime.
+   */
+  protected startOwnedCommand(spec: ShellExecSpec, argv: readonly string[], command: PreparedShellCommand): ShellProcess {
+    const release = (): void => {
+      try { command[Symbol.dispose]() } catch (error) { this.ctx.logger.warn('shell command-file cleanup failed', error) }
+    }
+    try {
+      return this.startArgv(spec, argv, release)
+    } catch (error) {
+      release()
+      throw error
+    }
   }
 
   /**
@@ -252,9 +290,10 @@ export class LocalBashExecutor extends ShellExecutor {
    * execution boundary.
    * @param spec - resolved execution settings and caller-owned command metadata.
    * @param argv - exact executable and arguments to hand to `ctx.subprocess`.
+   * @param release - release command resources after process settlement.
    * @returns the live background handle; provider rejection settles it as killed.
    */
-  protected startArgv(spec: ShellExecSpec, argv: readonly string[]): ShellProcess {
+  protected startArgv(spec: ShellExecSpec, argv: readonly string[], release?: () => void): ShellProcess {
     // Background runs ignore timeoutMs; callers stop them through kill() or spec.signal.
     const running = this.ctx.subprocess.spawn(this.spawnSpec(spec, argv, this.config.maxOutputBytes, spec.signal))
     const collected = LocalBashExecutor.collected(running)
@@ -293,7 +332,7 @@ export class LocalBashExecutor extends ShellExecutor {
         }
         providerFailureNote = `subprocess failed before reporting an outcome: ${detail}`
         this.onProcessDone(proc, providerFailureNote, true, error)
-      }),
+      }).finally(() => release?.()),
       readOutput: (): ShellProcessRead => {
         const out = collected.stdout.readFrom(stdoutOffset)
         const err = collected.stderr.readFrom(stderrOffset)

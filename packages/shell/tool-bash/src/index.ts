@@ -187,6 +187,9 @@ const BACKGROUND_OUTPUT_PROPERTIES = {
 } as const
 
 export function apply(ctx: Context, config: Config = {}): void {
+  const dialect = ctx.shell.dialect ?? 'bash'
+  if (dialect === 'pwsh') throw new Error('tool-bash requires a bash or cmd executor')
+  const toolName = dialect
   const backgroundEnabled = config.enableRunInBackground ?? true
   const defaultMode = ctx.shell.sandboxMode
   const escalationModes: readonly SandboxMode[] = defaultMode === undefined ? [] : ESCALATION_TARGETS
@@ -225,7 +228,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         approver: ctx.get('approval'),
         agent: exec.agent,
         callId: exec.callId,
-        toolName: 'bash',
+        toolName,
         signal: exec.signal,
       },
     )
@@ -233,16 +236,18 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   // Cross-call guidance belongs in the prompt rather than one-call schema prose.
   ctx.systemPrompt.section({
-    name: 'tool:bash',
+    name: `tool:${toolName}`,
     order: ctx.systemPrompt.getSectionOrder('TOOL_BASH'),
-    text: 'Check the [exit code: N] marker on every bash result; investigate failures before moving on.',
+    text: `Check the [exit code: N] marker on every ${toolName} result; investigate failures before moving on.`,
   })
 
   ctx.tools.register(defineTool({
-    name: 'bash',
-    description: bashDescription(backgroundEnabled, escalationModes),
+    name: toolName,
+    description: dialect === 'cmd'
+      ? 'Execute Windows cmd batch commands and return stdout/stderr. Use native paths, %VAR% variables, dir, type, and for %%i in batch loops. Each call starts fresh; pass workdir. PowerShell is unavailable. Split large output and file writes into small operations. Check exit codes and respect sandbox denials. Background jobs are available only when run_in_background is offered.'
+      : bashDescription(backgroundEnabled, escalationModes),
     parameters: {
-      command: { type: 'string', required: true, description: 'The bash command to execute.' },
+      command: { type: 'string', required: true, description: `The ${toolName} command to execute.` },
       description: {
         type: 'string',
         required: true,
@@ -327,6 +332,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       }],
     },
     async execute(args: BashToolArgs, exec) {
+      if ((ctx.shell.dialect ?? 'bash') !== dialect) throw new Error('The shell dialect changed; reload the shell tool before executing commands')
       validateBashArgs(args)
       // Description is display metadata; workdir defaults to the caller's session.
       const standingPolicy = resolveSandboxPolicy(exec)

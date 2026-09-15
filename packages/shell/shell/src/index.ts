@@ -62,6 +62,9 @@ declare module '@deepseek-ai/cordis' {
  *   an executor-only reload.
  */
 export abstract class ShellExecutor extends Service {
+  /** Interpreter syntax advertised to tools; custom executors may leave it unspecified. */
+  get dialect(): 'bash' | 'pwsh' | 'cmd' | undefined { return undefined }
+
   constructor(ctx: Context) {
     super(ctx, 'shell')
   }

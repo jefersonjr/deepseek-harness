@@ -10,7 +10,7 @@
  */
 
 import { existsSync } from 'node:fs'
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -342,7 +342,8 @@ async function hydrateReplayFixtures(scenario: CorpusScenario, cwd: string): Pro
   await mkdir(root, { recursive: true })
   return Promise.all((await fixtureFiles(scenario)).map(async (source) => {
     const destination = join(root, basename(source))
-    await writeFile(destination, (await readFile(source, 'utf8')).replaceAll('{{cwd}}', cwd))
+    const escapedCwd = JSON.stringify(cwd).slice(1, -1)
+    await writeFile(destination, (await readFile(source, 'utf8')).replaceAll('{{cwd}}', escapedCwd))
     return destination
   }))
 }
@@ -529,6 +530,13 @@ async function runScenario(scenario: CorpusScenario): Promise<{
 }> {
   const cwd = await mkdtemp(join(tmpdir(), `sdk-snapshot-${scenario.name}-`))
   const dshHome = join(cwd, '.dsh')
+  // Replay is a development dependency, outside the installed product closure.
+  // Make it resolvable to both Loader and the runtime package inventory.
+  if (!recording) {
+    const modules = join(dshHome, 'profiles', 'node_modules', '@deepseek-ai')
+    await mkdir(modules, { recursive: true })
+    await symlink(fileURLToPath(new URL('../../packages/test-support/llm-replay/', import.meta.url)), join(modules, 'dsh-llm-replay'), 'junction')
+  }
   const sessionsRoot = join(dshHome, 'sessions')
   const replayFixtures = recording ? [] : await hydrateReplayFixtures(scenario, cwd)
   const fixtureContents = await Promise.all((await fixtureFiles(scenario)).map(file => readFile(file, 'utf8')))
@@ -588,6 +596,8 @@ async function runScenario(scenario: CorpusScenario): Promise<{
     dshHome,
     processCwd: cwd,
     env,
+    // Cold source imports share the same bounded readiness budget as RPC work.
+    initializeTimeoutMs: 110_000,
     requestTimeoutMs: 110_000,
     cwd,
     provider: route.provider,
@@ -628,6 +638,7 @@ async function runScenario(scenario: CorpusScenario): Promise<{
         })
         results.push(result)
         if (scenario.manifest.environment?.DSH_SNAPSHOT_FEEDBACK === '1') {
+          expect(result.events.filter(event => event.type === 'llm/bedrock-exchange').map(event => event.data.phase)).toEqual(['request', 'response'])
           const feedback = result.events.filter(event => event.type.startsWith('feedback/'))
           expect(feedback.map(event => event.type)).toEqual([
             'feedback/record', 'feedback/record', 'feedback/message-put', 'feedback/message-put', 'feedback/message-delete',
@@ -839,8 +850,8 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
         const refreshed = ordered.map((log, index) => {
           const existing = expectedContents[index]
           if (existing === undefined) throw new Error(`no fixture for persisted log ${index}`)
-          return scrubSessionSnapshot(tokenizeSessionFixtureCwd(
-            stabilizeRefreshLog(log.content, existing, replacements, actualContext),
+          return scrubSessionSnapshot(stabilizeRefreshLog(
+            tokenizeSessionFixtureCwd(log.content), existing, replacements, actualContext,
           ))
         })
         expectedContents = redactSessionSnapshotIds(stabilizeFixtureMessageIds(refreshed, expectedContents))

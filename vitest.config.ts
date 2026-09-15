@@ -38,7 +38,10 @@ const windowsUnsupportedPackages = process.platform === 'win32'
 
 const windowsUnsupportedTests = process.platform === 'win32'
   ? [
-      ...windowsUnsupportedPackages.map(path => `${path}/tests/**/*.spec.ts`),
+      ...windowsUnsupportedPackages.filter(path => path !== 'packages/shell/bash-local').map(path => `${path}/tests/**/*.spec.ts`),
+      // The local executor now also owns native cmd tests; only its POSIX suites skip.
+      'packages/shell/bash-local/tests/executor.spec.ts',
+      'packages/shell/bash-local/tests/settings.spec.ts',
       'packages/subprocess/subprocess/tests/**/*.spec.ts',
       'packages/subprocess/subprocess-local/tests/local.spec.ts',
       'packages/subprocess/subprocess-local/tests/process-inspector.spec.ts',
@@ -151,6 +154,8 @@ const processBoundTests = [
   'packages/subprocess/subprocess-local/tests/spawn.spec.ts',
   'packages/context/time-context/tests/time-context.spec.ts',
   'packages/llm/llm-pi-ai/tests/adapter.spec.ts',
+  'packages/llm/llm-pi-ai/tests/bedrock-sdk.spec.ts',
+  'packages/shell/bash-local/tests/cmd.spec.ts',
   'packages/boot/app-boot/tests/app-boot.spec.ts',
   'packages/workflow/workflow-worker-thread/tests/session.spec.ts',
 ]

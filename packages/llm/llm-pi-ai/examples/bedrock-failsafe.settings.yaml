@@ -1,0 +1,17 @@
+# Merge into user settings; choose an enabled Bedrock model for your account.
+llm-pi-ai:
+  providers:
+    amazon-bedrock:
+      bedrock:
+        mode: failsafe
+        maxRequestCharacters: 5000
+        maxOutputTokens: 1024
+        maxContinuations: 8
+        maxRetries: 3
+        # profile: work
+        # region: us-east-1
+
+# New Web sessions use the compact prompt/tool catalog. Existing sessions keep their preset.
+agent-presets:
+  modeSelectionEnabled: true
+  default: bedrock

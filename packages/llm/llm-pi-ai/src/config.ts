@@ -41,6 +41,8 @@ import type {
   RouteCatalog,
 } from './catalog.ts'
 import { buildProvider, supportedProtocols } from './provider.ts'
+import { BedrockConfigSchema, resolveBedrockConfig } from './bedrock-config.ts'
+import type { BedrockConfig, ResolvedBedrockConfig } from './bedrock-config.ts'
 
 /** Default maximum idle interval while an adapter stream read is outstanding. */
 export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
@@ -89,6 +91,8 @@ export type {
 
 /** Configuration for one pi-ai provider route; the `providers` dict key IS the route. */
 export interface PiAiProviderProfile {
+  /** Amazon Bedrock profile selection and optional failsafe request policy. */
+  bedrock?: BedrockConfig
   /** Credential reference (environment-variable name) resolved per request through `ctx.credentials`. */
   apiKeyEnv?: string
   /** Name shown by configuration surfaces; defaults to the route key. */
@@ -183,7 +187,9 @@ export interface PiAiProviderProfile {
 
 /** Validated profile with its route stamped and every adapter-owned default resolved. */
 export interface ResolvedPiAiProviderProfile
-  extends Omit<PiAiProviderProfile, 'apiKeyEnv' | 'retryPolicy' | 'models' | 'displayName'> {
+  extends Omit<PiAiProviderProfile, 'apiKeyEnv' | 'retryPolicy' | 'models' | 'displayName' | 'bedrock'> {
+  /** Resolved AWS request policy, present only on Bedrock routes. */
+  bedrock?: ResolvedBedrockConfig
   /** Harness route key and the `Models` collection key (the configuration dict key). */
   provider: string
   /** Resolved display name for selectors and configuration surfaces. */
@@ -320,6 +326,7 @@ const modelProfile: z<PiAiModelProfile> = z.object({
 const modelOverride: z<PiAiModelOverride> = z.object(modelFields)
 
 const profile = z.object({
+  bedrock: z.union([BedrockConfigSchema]),
   apiKeyEnv: z.string().role('credential-ref'),
   displayName: z.string(),
   api: z.union(supportedProtocols()),
@@ -455,6 +462,11 @@ export function resolveProfiles(
     // always shown route keys, and a catalog route must not silently rename
     // itself on every configuration surface just because it gained a profile.
     const displayName = source.displayName ?? provider
+    const isBedrock = source.api === 'bedrock-converse-stream' || (source.api === undefined && provider === 'amazon-bedrock')
+    if (!isBedrock && source.bedrock !== undefined) {
+      throw new Error(`llm-pi-ai: provider "${provider}" configures bedrock without a Bedrock protocol`)
+    }
+    const bedrock = isBedrock ? resolveBedrockConfig(source.bedrock) : undefined
     let catalog: RouteCatalog | undefined
     let piProvider: Provider | undefined
     let catalogError: string | undefined
@@ -474,6 +486,7 @@ export function resolveProfiles(
       piProvider = buildProvider({
         provider,
         displayName,
+        ...bedrock === undefined ? {} : { bedrock },
         ...source.api === undefined ? {} : { api: source.api },
         ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },
         models: catalog.models,
@@ -483,11 +496,12 @@ export function resolveProfiles(
       if (validation === 'strict' || !(error instanceof PiAiCatalogError)) throw error
       catalogError ??= error.message
     }
-    const { apiKeyEnv, retryPolicy, models: _models, displayName: _displayName, ...rest } = source
+    const { apiKeyEnv, retryPolicy, models: _models, displayName: _displayName, bedrock: _bedrock, ...rest } = source
     resolved.set(provider, {
       ...rest,
       provider,
       displayName,
+      ...bedrock === undefined ? {} : { bedrock },
       ...apiKeyEnv === undefined ? {} : { apiKeyEnv: credentialRef(apiKeyEnv) },
       streamIdleTimeoutMs,
       maxRequestImageBytes,

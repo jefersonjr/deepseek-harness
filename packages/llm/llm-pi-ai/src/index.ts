@@ -61,6 +61,8 @@ import { assertUsableApiKey, LlmError, resolveImageAttachmentAccess } from '@dee
 import type { AdapterRegistrationHandle, DirectoryRegistrationHandle, LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/dsh-session'
+import './types.ts'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import { PiAiAdapter } from './adapter.ts'
 import { authContextFrom, credentialStoreFrom } from './auth.ts'
@@ -86,6 +88,8 @@ export type {
 } from './config.ts'
 export { recordKeyFor } from './auth.ts'
 export { supportedProtocols } from './provider.ts'
+export type { BedrockConfig, ResolvedBedrockConfig } from './bedrock-config.ts'
+export type { BedrockExchange } from './bedrock-failsafe.ts'
 
 export const name = 'llm-pi-ai'
 export const inject = ['llm']
@@ -198,6 +202,13 @@ export function apply(ctx: Context, config: Config): void {
     profiles,
     resolveApiKey,
     auth,
+    onBedrockExchange: async (sessionId, exchange) => {
+      const sessions = ctx.get('sessions')
+      const session = sessionId === undefined ? undefined : sessions?.get(sessionId)
+      if (session === undefined || sessions === undefined) return
+      session.append('llm/bedrock-exchange', exchange)
+      await sessions.flush(session)
+    },
     resolveAttachments: () => ctx.get('attachments'),
     resolveImageAccess: (attachments, ref) => resolveImageAttachmentAccess(
       attachments,

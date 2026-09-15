@@ -1321,6 +1321,9 @@ def smoke_sdk_snapshot(base_url: str, executable: Path, update_snapshots: bool) 
             result = harness.run(SNAPSHOT_PROMPT, session_id=SNAPSHOT_SESSION_ID)
 
         assert result.final_response == SNAPSHOT_FINAL_TEXT, result.final_response
+        bedrock_phases = [event["data"]["phase"] for event in result.events if event.get("type") == "llm/bedrock-exchange"]
+        if bedrock_phases != ["request", "response"]:
+            raise AssertionError(f"advanced snapshot lost Bedrock exchange records: {bedrock_phases}")
         feedback_types = [event.get("type") for event in result.events
                           if str(event.get("type")).startswith("feedback/")]
         if feedback_types != ["feedback/record", "feedback/record", "feedback/message-put", "feedback/message-put", "feedback/message-delete"]:

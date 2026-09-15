@@ -61,6 +61,8 @@ import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
 import { toStreamChunks } from './stream.ts'
+import { bedrockFailsafe } from './bedrock-failsafe.ts'
+import type { BedrockExchange } from './bedrock-failsafe.ts'
 
 /** One resolution's frozen view: the profiles and the collection built from them. */
 interface PiAiSnapshot {
@@ -72,6 +74,8 @@ interface PiAiSnapshot {
 
 /** Constructor options for {@link PiAiAdapter}: the two resolution hooks the plugin owns. */
 export interface PiAiAdapterOptions {
+  /** Record transformed Bedrock requests and settled attempts in their owning session. */
+  onBedrockExchange?: (sessionId: GenerateOptions['sessionId'], exchange: BedrockExchange) => void | Promise<void>
   /** Current validated profiles by provider route; called once per operation. */
   profiles: () => ReadonlyMap<string, ResolvedPiAiProviderProfile>
   /**
@@ -377,7 +381,7 @@ export class PiAiAdapter extends LlmAdapter {
             maxBytes: profile.requestImageMaxBytes,
           },
         }, onReplayDegrade)
-      const events = snapshot.models.streamSimple(model, context, {
+      const streamOptions: SimpleStreamOptions = {
         ...profileOptions(profile, reasoning, apiKey),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
@@ -386,8 +390,19 @@ export class PiAiAdapter extends LlmAdapter {
         // Profile headers are deployment-owned; attribution names are
         // Harness-owned and therefore win collisions.
         headers: requestHeaders(profile.headers),
-      })
-      const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]()
+      }
+      const failsafe = profile.bedrock?.mode === 'failsafe' ? profile.bedrock : undefined
+      const events = failsafe
+        ? bedrockFailsafe(
+          (requestContext, requestOptions) => snapshot.models.streamSimple(model, requestContext, requestOptions),
+          context,
+          streamOptions,
+          failsafe,
+          exchange => this.config.onBedrockExchange?.(options.sessionId, exchange),
+          () => { watchdog.pulse() },
+        )
+        : snapshot.models.streamSimple(model, context, streamOptions)
+      const iterator = toStreamChunks(events, failsafe ? undefined : model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]()
       let exhausted = false
       try {
         while (true) {

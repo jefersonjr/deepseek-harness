@@ -53,6 +53,10 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 The tool executes `bash -c <command>` and returns the combined output. Commands run in a fresh shell every call, so state never persists — pass `workdir` instead of `cd`. A non-zero exit is reported as `[exit code: N]` for the agent to interpret, not surfaced as a tool error. A `description` in active voice (5–10 words) labels the call in the UI; `timeoutMs` overrides the executor's default and cap. Output beyond the executor's stream caps is truncated to its tail, with the full output saved to a spill file whose path is reported.
 
+### Windows cmd
+
+With an executor configured as `shell: cmd`, this plugin advertises the `cmd` tool, Windows batch syntax and the same output, cancellation and sandbox policy. The PowerShell executor cannot back this tool. The selected dialect is captured at registration; changing it requires a composition reload.
+
 ### Running long commands in the background
 
 Passing `run_in_background: true` returns a job id immediately and no timeout applies; the command keeps running while the agent works on something else. The agent reads its output with `job_output` (non-blocking unless `wait: true`), lists jobs with `job_list`, and stops it with `job_kill`; a finished job notifies the owning agent in-session. Background support needs the generic job runtime (`dsh-jobs-local`) and its control tools (`dsh-tool-jobs`) mounted.

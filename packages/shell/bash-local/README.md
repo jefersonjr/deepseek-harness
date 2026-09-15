@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-bash-local` is the default Bash executor for POSIX: every command runs as a fresh, non-login `bash -c` process with no rc files, so no shell state survives between calls. It applies configured budgets — working directory, timeout, output caps — to each command, classifies timeouts and cancellations, and returns bounded output with spill-file recovery when a stream overflows. Commands run with the harness process's own authority: this executor confines nothing, so compose `dsh-bash-sandbox` when commands need the sandbox capability. The model-facing `bash` tool talks to it once it is mounted.
+`dsh-bash-local` runs Bash on POSIX or cmd on Windows. Each call starts a fresh process: non-login `bash -c` without rc files, or `cmd.exe /d /s /c` with a private UTF-8 batch file. Shell state does not survive between calls. It applies configured budgets — working directory, timeout, output caps — to each command, classifies timeouts and cancellations, and returns bounded output with spill-file recovery when a stream overflows. Commands run with the harness process's own authority: this executor confines nothing, so compose `dsh-bash-sandbox` when commands need the sandbox capability. The model-facing `bash` tool talks to it once it is mounted.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount this executor when a composition needs Bash command execution on POSIX without confinement. It registers as `ctx.shell`, and the model-facing `bash` tool works over it immediately: an agent calls the tool, and the command runs as a fresh `bash -c` process with the budgets below.
+Mount this executor when a composition needs Bash on POSIX or cmd on Windows without confinement. It registers as `ctx.shell`, and the model-facing `bash` tool works over it immediately: an agent calls the tool, and the command runs as a fresh `bash -c` process with the budgets below.
 
 ### Minimal configuration
 
@@ -41,6 +41,7 @@ Load the executor with the budgets you want; every field has a default, so the s
 
 | Field | Default | Meaning |
 |---|---|---|
+| `shell` | `bash` | `bash` or Windows-only `cmd`; reload the tool composition after changing dialect |
 | `cwd` | `process.cwd()` | Default working directory for commands |
 | `timeoutMs` | `120,000` | Default foreground timeout, in milliseconds |
 | `maxTimeoutMs` | `600,000` | Cap for per-call timeout overrides |
@@ -58,6 +59,10 @@ Run a command with `run` and read its output from the result. A nonzero exit, a 
 const result = await ctx.shell.run(ctx.shell.resolve({ command: 'ls -la' }))
 if (result.timedOut) console.log('timed out after', result.timeoutMs)
 ```
+
+### Windows cmd
+
+Set `shell: cmd` on Windows. Commands run as UTF-8 batch source through `cmd.exe /d /s /c`; use `%VAR%` and `for %%i` batch syntax. A private temporary command file avoids nested command-line quoting, remains available until foreground or background completion, and is removed after settlement. The shipped base selects this dialect on Windows and disables PowerShell rows. Changing the executor dialect requires reloading its model-facing tool.
 
 ### Background processes
 
@@ -80,7 +85,7 @@ This section explains the design of the executor and points at the code that rea
 
 ### Design concept
 
-The executor is a Service Provider for the `ctx.shell` seam built on the subprocess capability: it owns everything bash-shaped — command defaulting and caps, deadline fusion and cause classification, the model-friendly terminal environment, and the background read merge — while managed-range mechanics (bounded spill-backed output, credential scrub, termination escalation, quiescence, and disposal) belong to the subprocess service. Every call spawns a fresh non-login `bash -c` with no rc files, so commands are deterministic and shell state never leaks between calls.
+The executor is a Service Provider for the `ctx.shell` seam built on the subprocess capability: it owns everything bash-shaped — command defaulting and caps, deadline fusion and cause classification, the model-friendly terminal environment, and the background read merge — while managed-range mechanics (bounded spill-backed output, credential scrub, termination escalation, quiescence, and disposal) belong to the subprocess service. Every call starts a fresh interpreter process. The cmd dialect prepares a temporary batch file and releases it after subprocess settlement; Bash uses non-login `bash -c` without rc files.
 
 ### Source map
 
@@ -135,8 +140,8 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 These limits define when this executor is a poor fit. They are current package constraints, not a roadmap.
 
 - **Unconfined by itself** — commands run with the harness process's authority; deployments needing confinement compose `dsh-bash-sandbox`, while per-call allow/deny/ask policy belongs on the tools' `pre-execute` waterfall.
-- **No persistent shell or PTY** — every call starts a fresh non-login `bash -c`; cwd-only persistence and interactive terminal sessions remain deferred until a real workflow requires them.
-- **POSIX-only** — the `bash` binary is hardcoded and the underlying service's group semantics are POSIX; Windows is unsupported.
+- **No persistent shell or PTY** — each call starts a fresh Bash or cmd process; use a terminal provider when shell state must persist.
+- **cmd is batch syntax** — `%` expansion and quoting follow Windows batch rules, and applications that emit legacy encodings may require their own UTF-8 option. Disabling PowerShell tools is a composition choice, not an operating-system executable block.
 - **A background provider-failure note is single-delivery** — `SubprocessHandle.done` can reject before or after target execution begins, so the executor injects the stage-neutral `subprocess failed before reporting an outcome: …` into exactly one `readOutput()` delta; a reader that discards that delta cannot recover it.
 
 <a id="dev-note"></a>

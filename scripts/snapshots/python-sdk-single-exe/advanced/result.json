@@ -1597,8 +1597,63 @@
       }
     },
     {
-      "type": "turn/end",
+      "type": "llm/bedrock-exchange",
       "seq": 71,
+      "time": 0,
+      "data": {
+        "phase": "request",
+        "attempt": 2,
+        "continuation": 1,
+        "request": "{\"modelId\":\"bedrock-snapshot-model\",\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Continue after: part one\"}]}],\"inferenceConfig\":{\"maxTokens\":768}}",
+        "characters": 149,
+        "limit": 3750
+      }
+    },
+    {
+      "type": "llm/bedrock-exchange",
+      "seq": 72,
+      "time": 0,
+      "data": {
+        "phase": "response",
+        "attempt": 2,
+        "continuation": 1,
+        "request": "{\"modelId\":\"bedrock-snapshot-model\",\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Continue after: part one\"}]}],\"inferenceConfig\":{\"maxTokens\":768}}",
+        "characters": 149,
+        "limit": 3750,
+        "status": 200,
+        "response": {
+          "role": "assistant",
+          "api": "bedrock-converse-stream",
+          "provider": "amazon-bedrock",
+          "model": "bedrock-snapshot-model",
+          "timestamp": 0,
+          "content": [
+            {
+              "type": "text",
+              "text": " and two"
+            }
+          ],
+          "stopReason": "stop",
+          "usage": {
+            "input": 10,
+            "output": 2,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 12,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "turn/end",
+      "seq": 73,
       "time": 0,
       "data": {
         "turn": 1,
@@ -4534,8 +4589,75 @@
       "payload": {
         "sessionId": "{{parent}}",
         "event": {
-          "type": "turn/end",
+          "type": "llm/bedrock-exchange",
           "seq": 71,
+          "time": 0,
+          "data": {
+            "phase": "request",
+            "attempt": 2,
+            "continuation": 1,
+            "request": "{\"modelId\":\"bedrock-snapshot-model\",\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Continue after: part one\"}]}],\"inferenceConfig\":{\"maxTokens\":768}}",
+            "characters": 149,
+            "limit": 3750
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{parent}}",
+        "event": {
+          "type": "llm/bedrock-exchange",
+          "seq": 72,
+          "time": 0,
+          "data": {
+            "phase": "response",
+            "attempt": 2,
+            "continuation": 1,
+            "request": "{\"modelId\":\"bedrock-snapshot-model\",\"messages\":[{\"role\":\"user\",\"content\":[{\"text\":\"Continue after: part one\"}]}],\"inferenceConfig\":{\"maxTokens\":768}}",
+            "characters": 149,
+            "limit": 3750,
+            "status": 200,
+            "response": {
+              "role": "assistant",
+              "api": "bedrock-converse-stream",
+              "provider": "amazon-bedrock",
+              "model": "bedrock-snapshot-model",
+              "timestamp": 0,
+              "content": [
+                {
+                  "type": "text",
+                  "text": " and two"
+                }
+              ],
+              "stopReason": "stop",
+              "usage": {
+                "input": 10,
+                "output": 2,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 12,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "method": "session.event",
+      "payload": {
+        "sessionId": "{{parent}}",
+        "event": {
+          "type": "turn/end",
+          "seq": 73,
           "time": 0,
           "data": {
             "turn": 1,

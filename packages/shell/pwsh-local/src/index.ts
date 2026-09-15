@@ -126,6 +126,9 @@ export function assertServiceablePwshConfig(config: Config): void {
  * this executor supplies their configured budgets per spawn.
  */
 export class PwshLocalExecutor extends ShellExecutor {
+  /** PowerShell syntax for compositions that explicitly mount this executor. */
+  override get dialect(): 'pwsh' { return 'pwsh' }
+
   static inject = ['subprocess']
 
   static Config: z<Config> = z.object({

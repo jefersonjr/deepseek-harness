@@ -112,7 +112,9 @@ function cwdSpellings(ctx: NormalizeContext): string[] {
   const macAliases = spellings
     .filter(spelling => spelling.startsWith('/') && !spelling.startsWith('/private/'))
     .map(spelling => `/private${spelling}`)
-  return [...new Set([...spellings, ...macAliases])]
+  // Policy prose can quote a path as JSON inside an already decoded string.
+  const quotedSpellings = [...spellings, ...macAliases].flatMap(value => [value, JSON.stringify(value).slice(1, -1)])
+  return [...new Set(quotedSpellings)]
     .sort((left, right) => right.length - left.length)
 }
 

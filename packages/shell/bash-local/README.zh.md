@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-bash-local` 是 POSIX 上的默认 Bash 执行器：每条命令都以全新的非登录 `bash -c` 进程运行，不读取 rc 文件，因此调用之间不会残留任何 shell 状态。它会为每条命令应用已配置的预算——工作目录、超时、输出上限——对超时与取消进行分类，并在流溢出时返回有界输出与 spill 文件恢复。命令以 harness 进程自身的权限运行：本执行器不做任何隔离，需要沙箱能力时请组合 `dsh-bash-sandbox`。挂载后，面向模型的 `bash` 工具会与它对接。
+`dsh-bash-local` 在 POSIX 运行 Bash，在 Windows 运行 cmd。每次调用启动新进程：不读取 rc 文件的非登录 `bash -c`，或使用私有 UTF-8 batch 文件的 `cmd.exe /d /s /c`。调用之间不保留 shell 状态。它会为每条命令应用已配置的预算——工作目录、超时、输出上限——对超时与取消进行分类，并在流溢出时返回有界输出与 spill 文件恢复。命令以 harness 进程自身的权限运行：本执行器不做任何隔离，需要沙箱能力时请组合 `dsh-bash-sandbox`。挂载后，面向模型的 `bash` 工具会与它对接。
 
 ## 目录
 
@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-当组合需要在 POSIX 上执行 Bash 命令且不需要隔离时，挂载此执行器。它注册为 `ctx.shell`，面向模型的 `bash` 工具会立即基于它工作：agent（智能体）调用工具，命令即以全新 `bash -c` 进程按下面的预算运行。
+当组合需要在 POSIX 运行 Bash 或在 Windows 运行 cmd 且不需要隔离时，挂载此执行器。它注册为 `ctx.shell`，面向模型的 `bash` 工具会立即基于它工作：agent（智能体）调用工具，命令即以全新 `bash -c` 进程按下面的预算运行。
 
 ### 最小配置
 
@@ -41,6 +41,7 @@ kind: "package-reference"
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
+| `shell` | `bash` | `bash` 或仅限 Windows 的 `cmd`；更改方言后重新加载工具组合 |
 | `cwd` | `process.cwd()` | 命令的默认工作目录 |
 | `timeoutMs` | `120,000` | 默认前台超时，单位为毫秒 |
 | `maxTimeoutMs` | `600,000` | 每次调用超时覆盖值的上限 |
@@ -58,6 +59,10 @@ kind: "package-reference"
 const result = await ctx.shell.run(ctx.shell.resolve({ command: 'ls -la' }))
 if (result.timedOut) console.log('timed out after', result.timeoutMs)
 ```
+
+### Windows cmd
+
+在 Windows 设置 `shell: cmd`。命令通过 `cmd.exe /d /s /c` 运行 UTF-8 batch 源码；使用 `%VAR%` 和 `for %%i` 批处理语法。私有临时命令文件避免嵌套命令行转义，保留到前台或后台完成后删除。默认 base 在 Windows 选择此方言并禁用 PowerShell 行。更改执行器方言需要重新加载面向模型的工具。
 
 ### 后台进程
 
@@ -80,7 +85,7 @@ if (result.timedOut) console.log('timed out after', result.timeoutMs)
 
 ### 设计概念
 
-本执行器是基于 subprocess 能力的 `ctx.shell` seam 的 Service Provider：它负责所有 bash 层职责——命令默认化与上限、deadline 融合与原因分类、面向模型的终端环境，以及后台读取合并——而 managed-range 机制（有界 spill 输出、凭据清除、终止升级、完全停稳与 dispose（资源释放））属于 subprocess 服务。每次调用都 spawn 全新的非登录 `bash -c`，不读取 rc 文件，因此命令是确定性的，shell 状态绝不会在调用之间泄漏。
+本执行器是基于 subprocess 能力的 `ctx.shell` seam 的 Service Provider：它负责所有 bash 层职责——命令默认化与上限、deadline 融合与原因分类、面向模型的终端环境，以及后台读取合并——而 managed-range 机制（有界 spill 输出、凭据清除、终止升级、完全停稳与 dispose（资源释放））属于 subprocess 服务。每次调用都启动新的解释器进程。cmd 方言准备临时 batch 文件并在子进程结束后释放；Bash 使用不读取 rc 文件的非登录 `bash -c`。
 
 ### 源码地图
 
@@ -135,8 +140,8 @@ if (result.timedOut) console.log('timed out after', result.timeoutMs)
 这些限制说明本执行器何时不合适。它们是当前包约束，不是路线图。
 
 - **自身不提供隔离**——命令以 harness 进程的权限运行；需要隔离的部署组合 `dsh-bash-sandbox`，每次调用的 allow/deny/ask 策略则属于工具的 `pre-execute` waterfall（瀑布式事件）。
-- **没有持久 shell 或 PTY**——每次调用都启动全新的非登录 `bash -c`；仅持久化 cwd 与交互式终端会话均继续延期，直到真实工作流需要它们。
-- **仅支持 POSIX**——`bash` 二进制已硬编码，底层服务的进程组语义也是 POSIX 的；不支持 Windows。
+- **没有持久 shell 或 PTY**——每次调用启动新的 Bash 或 cmd 进程；需要保持 shell 状态时使用 terminal 提供方。
+- **cmd 使用批处理语法**——`%` 展开与转义遵循 Windows batch 规则，输出旧编码的程序可能需要自身 UTF-8 选项。禁用 PowerShell 工具是组合选择，不是操作系统级可执行文件阻止。
 - **后台提供方失败提示只交付一次**——`SubprocessHandle.done` 可能在目标命令开始执行前或后被拒绝，因此执行器把不声明失败阶段的 `subprocess failed before reporting an outcome: …` 注入恰好一个 `readOutput()` 增量；丢弃了该增量的读取方无法再恢复它。
 
 <a id="dev-note"></a>

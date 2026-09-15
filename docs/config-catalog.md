@@ -301,6 +301,8 @@ Requires: `subprocess`
 ```ts config-catalog
 /** Plugin config (all optional — `static Config` supplies the defaults). */
 export interface Config {
+  /** Interpreter dialect; Windows Bedrock compositions select cmd. */
+  shell?: 'bash' | 'cmd'
   /** Default working directory for commands (default: process.cwd()). */
   cwd?: string
   /** Default foreground timeout in milliseconds. */
@@ -316,7 +318,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/shell/bash-local/src/index.ts:41`](../packages/shell/bash-local/src/index.ts)
+Source: [`packages/shell/bash-local/src/index.ts:43`](../packages/shell/bash-local/src/index.ts)
 
 <a id="deepseek-aidsh-bash-sandbox"></a>
 
@@ -1115,6 +1117,8 @@ export interface Config {
 
 /** Configuration for one pi-ai provider route; the `providers` dict key IS the route. */
 export interface PiAiProviderProfile {
+  /** Amazon Bedrock profile selection and optional failsafe request policy. */
+  bedrock?: BedrockConfig
   /** Credential reference (environment-variable name) resolved per request through `ctx.credentials`. */
   apiKeyEnv?: string
   /** Name shown by configuration surfaces; defaults to the route key. */
@@ -1205,6 +1209,32 @@ export interface PiAiProviderProfile {
   requestImageMaxBytes?: number
   /** Provider-owned model-request retry policy; omission uses normal mode with five retries. */
   retryPolicy?: RetryPolicyConfig
+}
+
+/** Per-route Amazon Bedrock settings; credentials stay in the AWS profile. */
+export interface BedrockConfig {
+  /** Normal preserves Bedrock requests; failsafe bounds requests and recovers truncated replies. */
+  mode?: 'normal' | 'failsafe'
+  /** AWS shared-file profile; omitted uses AWS_PROFILE, then default. */
+  profile?: string
+  /** AWS region; omitted uses the environment and the selected profile. */
+  region?: string
+  /** Maximum Unicode characters in each complete serialized JSON request in failsafe mode. */
+  maxRequestCharacters?: number
+  /** Maximum output tokens per failsafe request, including continuations. */
+  maxOutputTokens?: number
+  /** Maximum additional requests after a token-limited response. */
+  maxContinuations?: number
+  /** Maximum corrective retries after HTTP 502 for one request. */
+  maxRetries?: number
+  /** Initial cancellable retry delay in milliseconds; subsequent waits use exponential backoff. */
+  retryDelayMs?: number
+  /** Fraction of the previous request and output budgets retained after HTTP 502. */
+  recoveryFactor?: number
+  /** Maximum characters of the preceding response carried into a continuation. */
+  continuationCharacters?: number
+  /** Maximum characters retained from each tool result when the request needs compaction. */
+  toolResultCharacters?: number
 }
 
 /** One configured model entry: an id plus the catalog fields it overrides. */
@@ -1369,7 +1399,7 @@ export type PiAiThinkingTokenBudgetField = NonNullable<OpenAICompletionsCompat['
 
 Depends on: `Api` (`@earendil-works/pi-ai`) · `CacheRetention` (`@earendil-works/pi-ai`) · `Model` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · `OpenAICompletionsCompat` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
 
-Source: [`packages/llm/llm-pi-ai/src/config.ts:221`](../packages/llm/llm-pi-ai/src/config.ts)
+Source: [`packages/llm/llm-pi-ai/src/config.ts:227`](../packages/llm/llm-pi-ai/src/config.ts)
 
 <a id="deepseek-aidsh-llm-replay"></a>
 

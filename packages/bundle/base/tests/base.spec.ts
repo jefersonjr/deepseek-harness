@@ -50,7 +50,7 @@ describe('dsh-base bundle', () => {
     expect(manifest.dependencies).toHaveProperty('@deepseek-ai/dsh-web-fetch-http')
   })
 
-  it('gates each shell stack by platform with a symmetric disabled expression', () => {
+  it('selects cmd on Windows and bash on POSIX while disabling PowerShell', () => {
     const root = fileURLToPath(new URL('..', import.meta.url))
     const parsed = yaml.load(
       readFileSync(resolve(root, 'cordis.patch.yml'), 'utf8'),
@@ -62,24 +62,14 @@ describe('dsh-base bundle', () => {
         ? (patch as { insert?: Record<string, unknown>[] }).insert ?? []
         : [],
     )
-    // Symmetric gating: each stack's executor and tool rows carry the same
-    // platform fact, inverted between the bash and pwsh twins, so exactly one
-    // shell stack mounts per host. Evaluate with a platform-scoped context
-    // (the `with` scope shadows the global `process`) so both outcomes pin on
-    // every host.
-    for (const [id, win32, linux] of [
-      ['bash-sandbox', true, false],
-      ['tool-bash', true, false],
-      ['pwsh-sandbox', false, true],
-      ['tool-pwsh', false, true],
-    ] as const) {
-      const row = rows.find(candidate => candidate.id === id)
-      if (row === undefined) throw new Error(`base patch must mount ${id}`)
-      const expression = (row.disabled as { __jsExpr?: string } | undefined)?.__jsExpr
-      if (expression === undefined) throw new Error(`${id} must gate on a !!js disabled expression`)
-      expect(Boolean(evaluate({ process: { platform: 'win32' } }, expression)), `${id} on win32`).toBe(win32)
-      expect(Boolean(evaluate({ process: { platform: 'linux' } }, expression)), `${id} on linux`).toBe(linux)
-    }
+    expect(rows.find(row => row.id === 'pwsh-sandbox')?.disabled).toBe(true)
+    expect(rows.find(row => row.id === 'tool-pwsh')?.disabled).toBe(true)
+    expect(rows.find(row => row.id === 'tool-bash')?.disabled).toBeUndefined()
+    const shell = rows.find(row => row.id === 'bash-sandbox')!
+    expect(shell.disabled).toBeUndefined()
+    const expression = (shell.config as { shell: { __jsExpr: string } }).shell.__jsExpr
+    expect(evaluate({ process: { platform: 'win32' } }, expression)).toBe('cmd')
+    expect(evaluate({ process: { platform: 'linux' } }, expression)).toBe('bash')
     // The platform layer folded into these rows: no separate patch file ships.
     expect(existsSync(resolve(root, 'windows.cordis.patch.yml'))).toBe(false)
   })

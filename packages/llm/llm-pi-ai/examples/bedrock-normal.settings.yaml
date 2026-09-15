@@ -1,0 +1,8 @@
+# Merge into the user settings document. Credentials remain in the AWS shared profile.
+llm-pi-ai:
+  providers:
+    amazon-bedrock:
+      bedrock:
+        mode: normal
+        # profile: work
+        # region: us-east-1

@@ -61,7 +61,7 @@ kind: "package-bundle"
 
 ### 各平台的 shell 工具
 
-在 macOS 与 Linux 上你获得 bash shell 工具；在 Windows 上则获得对应的 PowerShell 孪生工具，因此每台机器恰好有一套 shell 栈。各平台的安全行为完全一致。偏好不受沙盒约束的 PowerShell 执行器的 Windows 主机可以在其 profile patch 中切换 shell 行——切换必须同时禁用两个 PowerShell 行并重新启用两个 bash 行，否则 profile 无法加载。
+macOS 与 Linux 使用 `bash` 工具，Windows 使用 `cmd`。base 选择对应执行器方言，并禁用 PowerShell 执行器与工具行。每个平台仍使用自身沙箱提供方和审批策略。
 
 ### 更改默认值
 
@@ -83,7 +83,7 @@ patch 会替换目标行的整个 `config`，而不是合并进它。后续组�
 
 ### 平台门控
 
-patch 在自身上按平台门控两个 shell 栈：`bash-sandbox` 与 `tool-bash` 携带 `disabled: !!js process.platform === 'win32'`，孪生行 `pwsh-sandbox` 与 `tool-pwsh` 以取反的表达式仅在 win32 挂载。权限面与 POSIX 完全一致：沙箱策略通过 Windows ACL 受限令牌 runner（`dsh-sandbox-local` → `@deepseek-ai/dsh-sandbox-windows-acl`）执行相同的文件效果策略，`fs-sandbox` 继续围栏 `ctx.fs` 写入——在其旁再挂载 `dsh-fs-local` 会重复注册 `ctx.fs` 并在加载时失败。
+`bash-sandbox` 在 Windows 选择 `shell: cmd`，其他平台选择 `shell: bash`；`tool-bash` 公布执行器方言。`pwsh-sandbox` 与 `tool-pwsh` 保持禁用。Windows 通过 `dsh-sandbox-local` 使用 ACL 受限令牌 runner 隔离，`fs-sandbox` 继续提供文件服务。
 
 ### 源码地图
 

@@ -31,6 +31,8 @@ Mount this executor instead of `dsh-bash-local` when commands must not run with 
 
 Choose it when a deployment needs file-level confinement for Bash commands: the configured policy decides the default mode and workspace root, and each session can run under a different mode per call through the tool's escalation flow. The modes govern file effects only — network stays unrestricted and process visibility is backend-specific. For unconfined execution, or when no sandbox backend is available on the platform, mount `dsh-bash-local` instead.
 
+The inherited `shell: cmd` setting selects Windows cmd. The sandbox receives the prepared executable and batch-file path, and command-file cleanup waits for process settlement. The Windows runner test verifies a confined cmd write in a path with spaces and Unicode.
+
 ### Modes and file effects
 
 | Mode | File effects |

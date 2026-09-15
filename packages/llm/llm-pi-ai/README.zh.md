@@ -84,9 +84,34 @@ kind: "package-reference"
 | `requestImagePixelBudget` | `4,194,304` | 每张确定性请求图片的总像素预算 |
 | `requestImageMaxBytes` | `1 MiB` | 每张请求图片在 base64 扩展前的编码字节目标 |
 | `maxRequestImageBytes` | `20 MiB` | 带最旧优先卸载的 base64 图片载荷总上限 |
+| `bedrock` | Normal；Failsafe 为 5,000 个字符 | AWS profile、区域、请求预算和有界恢复；见下文 |
 | `retryPolicy` | normal，5 次重试 | 由 `dsh-llm-retry` 执行的提供方自有重试策略 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-llm-pi-ai)是每个受支持字段及其 JSDoc 的穷尽式真源。
+
+<a id="aws-bedrock-normal-and-failsafe"></a>
+### AWS Bedrock：Normal 与 Failsafe
+
+`amazon-bedrock` 路由默认使用 AWS 共享 profile：依次选择 `bedrock.profile`、AWS 登录流程保存的 profile、`AWS_PROFILE`、`default`。AWS SDK 负责加载凭据及刷新 SSO 或角色凭据。`bedrock.region` 优先于 `AWS_REGION`、`AWS_DEFAULT_REGION` 和所选 profile 的区域。显式 `apiKeyEnv` 仍选择 bearer 认证。使用 profile 时请省略该字段；环境中的 bearer token 和 skip-auth 标志无法覆盖所选 profile。
+
+默认 `bedrock.mode` 为 Normal，保留请求内容、流式输出、输出 token 限制和 SDK 原生重试行为。Failsafe 为受限代理增加有界恢复。以下用户设置片段选择 Failsafe：
+
+```yaml
+llm-pi-ai:
+  providers:
+    amazon-bedrock:
+      bedrock:
+        mode: failsafe
+        maxRequestCharacters: 5000
+```
+
+`maxRequestCharacters` 按完整序列化 SDK 输入的 Unicode 码点计数，包括 JSON 语法、转义字符、系统指令和工具 schema。二进制字段按 base64 表示计数。计数还包括 SDK 会移入 URL 的 `modelId`，因此限制偏保守。默认每次请求 5,000 个字符，而不是字节或 token。Normal 模式忽略此设置。
+
+Failsafe 缩写较早的对话数据和已完成工具交换，保留最新用户输入及最新工具调用／结果对，并缩短过大的工具观察。系统指令和工具定义保持完整。如果这些必需部分仍超预算，它会在网络 I/O 前返回 `BEDROCK_REQUEST_TOO_LARGE`。默认限制下的 Web 会话请使用精简 `bedrock` agent preset；standard 工具目录本身可能超过 5,000 字符。已有会话保持原 preset。[Normal](examples/bedrock-normal.settings.yaml) 和 [Failsafe](examples/bedrock-failsafe.settings.yaml) 示例放入用户设置文档；请为账户选择已启用的 Bedrock 模型。
+
+遇到 502 时，请求和输出预算均乘以 `recoveryFactor`（默认 `0.75`），最多重试 `maxRetries`（默认 `3`）次，从 `retryDelayMs`（默认 `500`）开始可取消的指数退避。若必需输入无法放入缩减目标，重试会在配置的硬上限内保留它，并继续减少输出 tokens。每次尝试只使用一次 SDK 请求。其他错误不进入此纠正重试。`maxOutputTokens` 默认为 `1024`；收到 `max_tokens` 后携带最多 `continuationCharacters`（`768`）个尾部字符继续，最多额外响应 `maxContinuations`（`8`）次。不完整工具参数会被丢弃并重新生成为更小的完整操作。部分文本会缓冲到完整回复成功，usage 包含所有尝试。
+
+属于活动会话的每个 Failsafe 请求及已结束响应都记录为 `llm/bedrock-exchange`，请求记录在传输前 flush。记录包含有效载荷和限制，不含认证标头。Failsafe 禁用 prompt cache 和 reasoning 扩展。缩写历史并非语义摘要，续写措辞仍依赖模型。profile 签名、502 恢复和续写由本地 AWS 协议 fixture 验证；真实账户访问、SSO 续期及企业代理需要部署 smoke 测试。
 
 ### 登录提供方
 
@@ -224,8 +249,8 @@ pi-ai 事件变成 harness 的推理、文本、工具调用、用量与 finish 
 - **未认证路由取决于其协议**——不点名凭据的路由解析为已配置但无密钥，但 pi-ai 的 OpenAI 兼容实现仍要求 API 密钥或 `Authorization` 标头，因此无密钥本地服务器需要由 `apiKeyEnv` 引用或 `headers` 中的 `Authorization` 条目提供的占位凭据。
 - **不支持 `GenerateOptions.stop`**——pi-ai 的通用流式选项无法跨提供方保证停止序列行为。
 - **只有历史中首条 `system` 消息会成为 pi-ai 的 `systemPrompt`**——pi-ai 只有一个系统槽位，因此后续的 `system` 消息，或在同时设置了 `GenerateOptions.system` 时的首条消息，会在原位置折叠为 `user` 消息；系统提示词的提供方专属放置遵循 pi-ai，而非 harness 自有的协议覆盖。system 或 assistant 历史中的图片（包括首条系统消息中的图片）在两条转换路径上都会以 `UNSUPPORTED_CONTENT` 失败。
-- **提供方 HTTP 状态不可用**——pi-ai 错误事件不跨提供方暴露稳定 HTTP 状态。
-- **重试策略由提供方自有，而非 SDK 重试**——pi-ai SDK 重试保持禁用，因此持久 agent（智能体）步骤与 `llm/retry` 事件拥有每个可见尝试，直接 `ctx.llm.stream()` 调用仍是单次尝试。
+- **HTTP 状态依赖提供方**——Bedrock Failsafe 读取它用于网关恢复；其他 pi-ai 错误事件不跨提供方暴露稳定状态。
+- **重试归属取决于模式**——普通提供方重试属于 `dsh-llm-retry`；Normal Bedrock 还保留 SDK 原生重试。Failsafe 管理有界 502 尝试并记录为 `llm/bedrock-exchange`，终止错误避免外层叠加重试。
 
 <a id="dev-note"></a>
 ### 开发备注
@@ -235,7 +260,7 @@ pi-ai 事件变成 harness 的推理、文本、工具调用、用量与 finish 
 
 本开发备注是不具权威性的工作上下文：尚未决定的探索方向与维护者备注。已交付的行为与既定理由以上文、包代码和相关 Agent Note 为准。
 
-- 提供的协议集合刻意比 pi-ai 的完整 API 集合更窄：Bedrock、Vertex、Azure 与 Codex 通过 profile 无法以密钥、端点与标头完整描述的流程认证；目录路由仍可经自有提供方到达它们，只有显式覆盖会被拒绝。Codex 可经授权流程的 OAuth grant 登录。
+- 显式 Bedrock 路由接受 AWS profile 和区域；Vertex、Azure、Codex 仍需要目录提供方。本仓库固定 pi-ai 补丁以实现 profile 优先 SigV4 及单次尝试控制；独立发布包时必须保留该依赖补丁。
 - `compat` 开关集合由漂移门禁钉在 pi-ai 的 compat 类型上；上游升级若新增字段、为更多协议赋予 compat 类型或扩大值联合，会在有人分类前让构建失败。
 
 </details>

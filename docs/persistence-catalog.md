@@ -516,6 +516,17 @@ Source: [`packages/hooks/hook-protocol/src/types.ts:31`](../packages/hooks/hook-
 
 ### `llm/*`
 
+<a id="llmbedrock-exchange--log-only"></a>
+
+#### `llm/bedrock-exchange` — log-only
+
+```ts persistence-catalog
+/** Exact bounded request and response records for Bedrock recovery and continuation. */
+'llm/bedrock-exchange': BedrockExchange
+```
+
+Source: [`packages/llm/llm-pi-ai/src/types.ts:7`](../packages/llm/llm-pi-ai/src/types.ts)
+
 <a id="llmretry--log-only"></a>
 
 #### `llm/retry` — log-only

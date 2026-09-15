@@ -1,5 +1,12 @@
 # TypeScript SDK snapshot-record patch over `dsh --profile sdk`.
 
+# Recorded tool schemas use the same dialect on every host. Native Windows
+# cmd selection is covered by the bundle and real executor tests.
+- id: bash-sandbox
+  config:
+    shell: bash
+    timeoutMs: 60000
+
 # The fixture corpus must not depend on the developer's personal skill roots.
 # Ordinary product launches retain the sdk profile's default skill discovery.
 - id: skill-filesystem

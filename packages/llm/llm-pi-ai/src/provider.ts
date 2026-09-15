@@ -24,7 +24,10 @@ import type { Api, ApiKeyAuth, Model, Provider, ProviderStreams } from '@earendi
 import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messages.lazy'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy'
+import { bedrockConverseStreamApi } from '@earendil-works/pi-ai/api/bedrock-converse-stream.lazy'
 import { catalogProvider, PiAiCatalogError } from './catalog.ts'
+import { bedrockProfileAuth } from './bedrock-auth.ts'
+import type { BedrockConfig } from './bedrock-config.ts'
 
 /**
  * Wire protocols a configured route may name, mapped to pi-ai's lazily loaded
@@ -33,9 +36,8 @@ import { catalogProvider, PiAiCatalogError } from './catalog.ts'
  * catalog route would.
  *
  * The table is deliberately narrow: the protocols a hand-declared route
- * actually reads, each completely describable with a key, an
- * endpoint, and headers. Bedrock signs with SigV4 over AWS credentials and a
- * region, Vertex needs a project, a location, and application-default
+ * actually reads. Bedrock additionally accepts a shared AWS profile and a
+ * region through the route's bedrock configuration. Vertex needs a project, a location, and application-default
  * credentials, Azure needs provider environment plus an api-version, and Codex
  * authenticates through OAuth — none of which this configuration shape can
  * express, so offering them would hand back a provider that cannot
@@ -48,6 +50,7 @@ const PROTOCOLS: Readonly<Record<string, () => ProviderStreams>> = {
   'openai-completions': openAICompletionsApi,
   'openai-responses': openAIResponsesApi,
   'anthropic-messages': anthropicMessagesApi,
+  'bedrock-converse-stream': bedrockConverseStreamApi,
 }
 
 /**
@@ -86,6 +89,8 @@ function harnessApiKeyAuth(name: string): ApiKeyAuth {
 
 /** The resolved route facts provider construction reads. */
 export interface ProviderSpec {
+  /** AWS profile selection for a Bedrock route. */
+  bedrock?: BedrockConfig
   /** Provider route key; also the `Models` collection key and each model's `provider`. */
   provider: string
   /** Display name for selectors and status labels. */
@@ -129,6 +134,11 @@ export interface ProviderSpec {
  * @returns the auth to construct this route's provider with.
  */
 function routeAuth(spec: ProviderSpec, catalog: Provider | undefined): Provider['auth'] {
+  if (spec.bedrock !== undefined && !spec.namesCredential) {
+    const original = catalogProvider('amazon-bedrock')?.auth.apiKey
+    if (original === undefined) throw new PiAiCatalogError('llm-pi-ai: the installed catalog has no Bedrock authentication')
+    return { apiKey: bedrockProfileAuth(spec.bedrock, original) }
+  }
   if (catalog === undefined) return { apiKey: harnessApiKeyAuth(spec.displayName) }
   if (catalog.auth.apiKey !== undefined || !spec.namesCredential) return catalog.auth
   return { ...catalog.auth, apiKey: harnessApiKeyAuth(spec.displayName) }

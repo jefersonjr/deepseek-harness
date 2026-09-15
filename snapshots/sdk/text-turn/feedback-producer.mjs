@@ -1,4 +1,5 @@
 /** Exercise real feedback services before the SDK closes the recorded root turn. */
+import { appendBedrockExchanges } from './bedrock-exchanges.mjs'
 export const name = 'snapshot-feedback-producer'
 export const inject = ['commands', 'messageFeedback', 'sessionFeedback']
 
@@ -25,5 +26,6 @@ export function apply(ctx) {
     if (JSON.stringify(agent.session.deriveMessages()) !== JSON.stringify(messages)) {
       throw new Error('feedback changed model-visible messages')
     }
+    appendBedrockExchanges(agent.session)
   })
 }

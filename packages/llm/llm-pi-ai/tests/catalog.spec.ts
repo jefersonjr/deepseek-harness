@@ -335,7 +335,7 @@ describe('hand-declared providers', () => {
     expect(profile.piProvider).toBeUndefined()
   })
 
-  it.each(['bedrock-converse-stream', 'google-vertex', 'azure-openai-responses', 'openai-codex-responses'])(
+  it.each(['google-vertex', 'azure-openai-responses', 'openai-codex-responses'])(
     'refuses %s, whose authentication a profile cannot express',
     (api) => {
       // These need SigV4 credentials and a region, a project plus ADC, provider

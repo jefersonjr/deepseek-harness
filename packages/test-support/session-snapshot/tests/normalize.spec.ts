@@ -155,6 +155,19 @@ describe('normalizeStdout', () => {
     })
   })
 
+  it('tokenizes JSON-quoted Windows workspaces inside policy prose', () => {
+    const results = ['first-run', 'second-run'].map((suffix) => {
+      const cwd = String.raw`C:\Users\runner\AppData\Local\Temp` + '\\' + suffix
+      const text = `Workspace: ${JSON.stringify(cwd)}. Keep regex \\d+ unchanged.`
+      const log = [JSON.stringify({ type: 'session', cwd }), JSON.stringify({ type: 'user/message', data: { text } })].join('\n')
+      const tokenized = tokenizeSessionFixtureCwd(log)
+      expect(tokenized).not.toContain(suffix)
+      expect(JSON.parse(tokenized.split('\n')[1] ?? '{}')).toEqual({ type: 'user/message', data: { text: 'Workspace: "{{cwd}}". Keep regex \\d+ unchanged.' } })
+      return normalizeStdout(JSON.stringify({ text }), { cwd, sessionIds: [] })
+    })
+    expect(results[0]).toBe(results[1])
+  })
+
   it('canonicalizes generated relative path fields and text markers without rewriting other text', () => {
     const raw = JSON.stringify({
       path: String.raw`nested\AGENTS.md`,

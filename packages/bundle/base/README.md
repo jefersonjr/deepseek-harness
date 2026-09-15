@@ -61,7 +61,7 @@ Default file editing uses `read`, `write`, and `edit`. The `str_replace_editor` 
 
 ### Shell tools per platform
 
-On macOS and Linux you get the bash shell tools; on Windows you get the PowerShell twins instead, so exactly one shell stack is available per machine. The safety behavior is identical on every platform. A Windows host that prefers the unconfined PowerShell executor can switch the shell rows in its profile patch — the switch must disable both PowerShell rows and re-enable both bash rows, otherwise the profile fails to load.
+On macOS and Linux the shell tool is `bash`; on Windows it is `cmd`. The base selects the matching executor dialect and disables the PowerShell executor and tool rows. Each platform still uses its sandbox provider and approval policy.
 
 ### Changing the defaults
 
@@ -83,7 +83,7 @@ A patch replaces the targeted row's whole `config` rather than merging into it. 
 
 ### Platform gating
 
-The patch gates the two shell stacks by platform on its own rows: `bash-sandbox` and `tool-bash` carry `disabled: !!js process.platform === 'win32'`, and their twins `pwsh-sandbox` and `tool-pwsh` mount on win32 only with the inverted expression. The permission surface stays identical to POSIX: the sandbox policy executes the same file-effect policy through the Windows ACL restricted-token runner (`dsh-sandbox-local` → `@deepseek-ai/dsh-sandbox-windows-acl`), and `fs-sandbox` keeps fencing `ctx.fs` writes — mounting `dsh-fs-local` alongside it would double-register `ctx.fs` and fail the load.
+The `bash-sandbox` row selects `shell: cmd` on Windows and `shell: bash` elsewhere; `tool-bash` advertises the executor dialect. `pwsh-sandbox` and `tool-pwsh` stay disabled. Windows confinement uses the ACL restricted-token runner through `dsh-sandbox-local`; `fs-sandbox` remains the file service.
 
 ### Source map
 

@@ -93,7 +93,8 @@ export class SandboxBashExecutor extends LocalBashExecutor {
       const result = await super.run(spec)
       return { ...result, sandbox: { mode, denied: false } }
     }
-    const confined = this.confine(spec.command, { ...policy, mode })
+    using command = this.prepareCommand(spec.command)
+    const confined = this.confine(command.argv, { ...policy, mode })
     let result: ShellRunResult
     try {
       result = await this.runArgv(spec, confined.argv)
@@ -120,10 +121,17 @@ export class SandboxBashExecutor extends LocalBashExecutor {
     if (mode === 'danger-full-access') return super.start(spec)
     // Once startArgv returns, install facts synchronously; promise settlement
     // cannot run before start() returns.
-    const confined = this.confine(spec.command, { ...policy, mode })
+    const command = this.prepareCommand(spec.command)
+    let confined: ConfinedArgv
+    try {
+      confined = this.confine(command.argv, { ...policy, mode })
+    } catch (error) {
+      command[Symbol.dispose]()
+      throw error
+    }
     let proc: ShellProcess
     try {
-      proc = this.startArgv(spec, confined.argv)
+      proc = this.startOwnedCommand(spec, confined.argv, command)
     } catch (error) {
       // LocalSubprocessRuntime reports ENOENT/EACCES with the failed executable path through async
       // `done` rejection; this covers alternatives that throw the same error synchronously.
@@ -172,12 +180,12 @@ export class SandboxBashExecutor extends LocalBashExecutor {
    * Wrap one shell command via the `ctx.sandbox` provider. Provider errors
    * propagate unchanged; the returned argv is handed directly to the local
    * executor's subprocess path.
-   * @param command - shell source for the confined inner `bash -c`.
+   * @param argv - prepared invocation for the selected interpreter.
    * @param policy - resolved confined execution policy.
    * @returns the provider's exact argv and settlement-classification facts.
    */
-  private confine(command: string, policy: SandboxPolicy): ConfinedArgv {
-    return this.ctx.sandbox.confine(['bash', '-c', command], policy)
+  private confine(argv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
+    return this.ctx.sandbox.confine(argv, policy)
   }
 }
 
